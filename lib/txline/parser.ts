@@ -58,11 +58,39 @@ export class TxLineDataParser {
       };
     }
 
+    const gameState = (mainMarket.GameState || 'PRE_MATCH').toUpperCase();
+    const finishedStates = new Set([
+      'F',
+      'FET',
+      'FPE',
+      'A',
+      'C',
+      'TXCC',
+      'TXCS',
+      'P',
+    ]);
+    const activeStates = new Set([
+      'H1',
+      'HT',
+      'H2',
+      'WET',
+      'ET1',
+      'HTET',
+      'ET2',
+      'WPE',
+      'PE',
+      'LIVE',
+    ]);
+
+    const isLive = finishedStates.has(gameState)
+      ? false
+      : mainMarket.InRunning || activeStates.has(gameState);
+
     return {
       fixtureId: mainMarket.FixtureId,
       timestamp: mainMarket.Ts,
       gameState: mainMarket.GameState || 'PRE_MATCH',
-      isLive: mainMarket.InRunning,
+      isLive,
       probabilities,
     };
   }

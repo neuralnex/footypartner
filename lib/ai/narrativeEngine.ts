@@ -56,13 +56,24 @@ export class FootballPulseNarrativeEngine {
   public async generateNarrative(
     state: NormalizedMatchState,
     homeTeam: string,
-    awayTeam: string
+    awayTeam: string,
+    matchData?: { currentScore?: { home: number; away: number }; stats?: any }
   ): Promise<NarrativeOutput> {
+    const scoreInfo = matchData?.currentScore
+      ? `Current score: ${homeTeam} ${matchData.currentScore.home} - ${matchData.currentScore.away} ${awayTeam}`
+      : 'Current score: not available';
+
+    const statsInfo = matchData?.stats
+      ? `Match stats - Possession: ${matchData.stats.possession}%`
+      : '';
+
     const prompt = `
 Match: ${homeTeam} vs ${awayTeam}
 Fixture ID: ${state.fixtureId}
 Game state: ${state.gameState}
 Live: ${state.isLive}
+${scoreInfo}
+${statsInfo}
 Win probabilities: ${
       state.probabilities
         ? `${homeTeam} ${state.probabilities.homeWin}% | Draw ${state.probabilities.draw}% | ${awayTeam} ${state.probabilities.awayWin}%`

@@ -1,0 +1,3 @@
+(async()=>{ const id = 18187298; try{ const ures = await fetch(`http://localhost:3000/api/scores/updates?fixtureId=${id}`); const utext = await ures.text(); console.log('LEN', utext.length); console.log('HEAD', utext.slice(0,240)); console.log('TRIM_STARTS_DATA', utext.trim().startsWith('data:')); }catch(e){ console.error('ERR', e.message); } })();
+
+(async()=>{ const id = 18187298; try{ const u = await (await fetch(`http://localhost:3000/api/scores/updates?fixtureId=${id}`)).text(); console.log('CHARCODES'); for(let i=0;i<8;i++){ console.log(i, u.charCodeAt(i)); } console.log('FIRST6', JSON.stringify(u.slice(0,6))); }catch(e){}})();

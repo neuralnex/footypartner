@@ -10,13 +10,46 @@
 import { NextRequest } from 'next/server';
 import axios from 'axios';
 import { withFreshSession } from '@/lib/txline/singleton';
-import { TxLineDataParser, RawOddsPayload } from '@/lib/txline/parser';
+import { TxLineDataParser, RawOddsPayload, type NormalizedMatchState } from '@/lib/txline/parser';
 import { apiBaseUrl } from '@/lib/txline/config';
 import { FootballPulseNarrativeEngine } from '@/lib/ai/narrativeEngine';
+import { getScoreUpdates, getScoreSnapshot, getCurrentScore, getMatchStats, type ScoreSnapshot } from '@/lib/txline/scores';
 
 export const dynamic = 'force-dynamic';
 
 const POLL_INTERVAL_MS = 8000;
+const SCORE_POPULATE_DELAY_MS = Number(process.env.TXLINE_SCORE_DELAY_MS ?? '60000');
+
+interface FixtureStreamCacheEntry {
+  normalized: NormalizedMatchState;
+  matchData: { currentScore: { home: number; away: number }; stats: any };
+  scores: ScoreSnapshot[];
+  lastUpdated: number;
+}
+
+const fixtureStreamCache = new Map<number, FixtureStreamCacheEntry>();
+
+function scoreKeyFromSnapshot(scores: ScoreSnapshot[]) {
+  if (!scores || scores.length === 0) return '';
+  const latest = scores[scores.length - 1];
+  return JSON.stringify({
+    gameState: latest.gameState,
+    score: latest.scoreSoccer ? `${latest.scoreSoccer.Participant1.Total?.Goals ?? 0}-${latest.scoreSoccer.Participant2.Total?.Goals ?? 0}` : null,
+  });
+}
+
+function narrativeKey(
+  normalized: NormalizedMatchState,
+  matchData: { currentScore: { home: number; away: number }; stats: any }
+) {
+  return JSON.stringify({
+    gameState: normalized.gameState,
+    isLive: normalized.isLive,
+    probabilities: normalized.probabilities,
+    score: matchData.currentScore,
+    possession: matchData.stats?.possession,
+  });
+}
 
 export async function GET(
   request: NextRequest,
@@ -44,8 +77,49 @@ export async function GET(
   const stream = new ReadableStream({
     start(controller) {
       let closed = false;
+      let readyToPublish = false;
+      let lastSentScoreKey = '';
+      let lastSentNarrativeKey = '';
+      let cachedNormalized: NormalizedMatchState | null = null;
+      let cachedMatchData: { currentScore: { home: number; away: number }; stats: any } | null = null;
+      let cachedScores: ScoreSnapshot[] | null = null;
+
+      const delayTimer = setTimeout(async () => {
+        readyToPublish = true;
+        if (cachedNormalized && cachedMatchData && cachedScores) {
+          const scoreKey = scoreKeyFromSnapshot(cachedScores);
+          if (scoreKey && scoreKey !== lastSentScoreKey) {
+            lastSentScoreKey = scoreKey;
+            send('scores', cachedScores);
+          }
+          if (cachedNormalized && narrativeEngine) {
+            const currentNarrativeKey = narrativeKey(cachedNormalized, cachedMatchData);
+            if (currentNarrativeKey && currentNarrativeKey !== lastSentNarrativeKey) {
+              lastSentNarrativeKey = currentNarrativeKey;
+              try {
+                const narrative = await narrativeEngine.generateNarrative(
+                  cachedNormalized,
+                  homeTeam,
+                  awayTeam,
+                  cachedMatchData
+                );
+                send('narrative', narrative);
+              } catch (narrativeErr) {
+                send('error', { source: 'narrative', message: String(narrativeErr) });
+              }
+            }
+          }
+        }
+      }, SCORE_POPULATE_DELAY_MS);
 
       const send = (event: string, data: unknown) => {
+        if (closed || !readyToPublish) return;
+        controller.enqueue(
+          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+        );
+      };
+
+      const sendUnbuffered = (event: string, data: unknown) => {
         if (closed) return;
         controller.enqueue(
           encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -62,19 +136,76 @@ export async function GET(
             return TxLineDataParser.parseLiveOdds(response.data);
           });
 
-          send('odds', normalized);
+          sendUnbuffered('odds', normalized);
 
-          if (narrativeEngine) {
+          // Fetch rich score data with stats, lineups, etc.
+          let matchData: { currentScore: { home: number; away: number }; stats: any } = {
+            currentScore: { home: 0, away: 0 },
+            stats: null,
+          };
+          try {
+            const scoreSnapshot = await getScoreSnapshot(fixtureIdNum);
+            if (scoreSnapshot && scoreSnapshot.length > 0) {
+              const latestScore = scoreSnapshot[scoreSnapshot.length - 1];
+              matchData.currentScore = getCurrentScore(latestScore);
+              const stats = getMatchStats(latestScore);
+              if (stats) {
+                matchData.stats = stats;
+              }
+              cachedScores = scoreSnapshot;
+            }
+          } catch (scoresErr) {
+            console.warn('[stream] score snapshot fetch failed:', scoresErr);
+          }
+
+          cachedNormalized = normalized;
+          cachedMatchData = matchData;
+
+          const shouldEmitNarrative = () => {
+            if (!narrativeEngine) return false;
+            const currentKey = narrativeKey(normalized, matchData);
+            if (currentKey === lastSentNarrativeKey) return false;
+            lastSentNarrativeKey = currentKey;
+            return true;
+          };
+
+          if (narrativeEngine && shouldEmitNarrative() && readyToPublish) {
             try {
               const narrative = await narrativeEngine.generateNarrative(
                 normalized,
                 homeTeam,
-                awayTeam
+                awayTeam,
+                matchData
               );
               send('narrative', narrative);
             } catch (narrativeErr) {
               send('error', { source: 'narrative', message: String(narrativeErr) });
             }
+          }
+
+          // Fetch and broadcast score updates
+          try {
+            const scores = await getScoreUpdates(fixtureIdNum);
+            if (scores && scores.length > 0) {
+              cachedScores = scores;
+              const currentScoreKey = scoreKeyFromSnapshot(scores);
+              if (readyToPublish && currentScoreKey !== lastSentScoreKey) {
+                lastSentScoreKey = currentScoreKey;
+                send('scores', scores);
+              }
+            }
+          } catch (scoresErr) {
+            // Silently fail on scores — don't break the odds stream
+            console.warn('[stream] scores fetch failed:', scoresErr);
+          }
+
+          if (cachedNormalized && cachedMatchData && cachedScores) {
+            fixtureStreamCache.set(fixtureIdNum, {
+              normalized: cachedNormalized,
+              matchData: cachedMatchData,
+              scores: cachedScores,
+              lastUpdated: Date.now(),
+            });
           }
         } catch (err) {
           send('error', { source: 'odds', message: String(err) });
@@ -87,6 +218,7 @@ export async function GET(
 
       request.signal.addEventListener('abort', () => {
         closed = true;
+        clearTimeout(delayTimer);
         clearInterval(interval);
         controller.close();
       });

@@ -13,11 +13,13 @@ import {
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { Connection, Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
+import fs from 'fs';
+import path from 'path';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import axios from 'axios';
 
-import { activeConfig, apiBaseUrl, WORLD_CUP_FREE_SERVICE_LEVEL } from './config';
+import { activeConfig, apiBaseUrl, apiOrigin, WORLD_CUP_FREE_SERVICE_LEVEL } from './config';
 import txoracleIdl from './txoracle.idl.json';
 
 export interface TxLineCredentials {
@@ -30,6 +32,7 @@ export class TxLineCustodianEngine {
   private masterKeypair: Keypair;
   private provider: anchor.AnchorProvider;
   private program: anchor.Program;
+  private cachePath: string;
 
   private cachedJwt: string | null = null;
   private cachedApiToken: string | null = null;
@@ -55,6 +58,9 @@ export class TxLineCustodianEngine {
       { commitment: 'confirmed' }
     );
 
+    this.cachePath = process.env.TXLINE_CACHE_PATH ?? path.resolve(process.cwd(), '.txline-cache.json');
+    this.loadCache();
+
     // Anchor 0.30+ IDL embeds the program address in the IDL itself.
     this.program = new anchor.Program(txoracleIdl as anchor.Idl, this.provider);
 
@@ -71,16 +77,29 @@ export class TxLineCustodianEngine {
     durationWeeks: number = 4,
     selectedLeagues: number[] = []
   ): Promise<TxLineCredentials> {
-    console.log('[txline] [1/3] requesting guest JWT...');
-    this.cachedJwt = await this.getGuestJwt();
+    if (this.cachedJwt && this.cachedApiToken && this.subscribeTxSig) {
+      console.log('[txline] using persisted cached credentials.');
+      return { jwt: this.cachedJwt, apiToken: this.cachedApiToken };
+    }
 
-    console.log('[txline] [2/3] submitting on-chain subscribe()...');
-    this.subscribeTxSig = await this.sendSubscribeTransaction(serviceLevelId, durationWeeks);
-    this.lastLeagues = selectedLeagues;
+    if (!this.cachedJwt) {
+      console.log('[txline] [1/3] requesting guest JWT...');
+      this.cachedJwt = await this.getGuestJwt();
+    }
 
-    console.log('[txline] [3/3] activating API token...');
-    this.cachedApiToken = await this.activateApiToken(this.subscribeTxSig, selectedLeagues);
+    if (!this.subscribeTxSig) {
+      console.log('[txline] [2/3] submitting on-chain subscribe()...');
+      this.subscribeTxSig = await this.sendSubscribeTransaction(serviceLevelId, durationWeeks);
+      this.lastLeagues = selectedLeagues;
+    }
+
+    if (!this.cachedApiToken) {
+      console.log('[txline] [3/3] activating API token...');
+      this.cachedApiToken = await this.activateApiToken(this.subscribeTxSig, selectedLeagues);
+    }
+
     this.issuedAt = Date.now();
+    this.persistCache();
 
     console.log('[txline] custodian pipeline ready.');
     return { jwt: this.cachedJwt, apiToken: this.cachedApiToken };
@@ -100,8 +119,15 @@ export class TxLineCustodianEngine {
     }
     console.log('[txline] refreshing JWT + api token (subscription already active)...');
     this.cachedJwt = await this.getGuestJwt();
-    this.cachedApiToken = await this.activateApiToken(this.subscribeTxSig, this.lastLeagues);
+    // If we already have an active API token, do not re-activate against the
+    // same subscribeTxSig – the remote service rejects re-activation with 403.
+    if (!this.cachedApiToken) {
+      this.cachedApiToken = await this.activateApiToken(this.subscribeTxSig, this.lastLeagues);
+    } else {
+      console.log('[txline] cached API token present; skipping re-activation.');
+    }
     this.issuedAt = Date.now();
+    this.persistCache();
     return { jwt: this.cachedJwt, apiToken: this.cachedApiToken };
   }
 
@@ -112,7 +138,7 @@ export class TxLineCustodianEngine {
   }
 
   private async getGuestJwt(): Promise<string> {
-    const response = await axios.post(`${activeConfig.apiOrigin}/auth/guest/start`);
+    const response = await axios.post(`${apiOrigin}/auth/guest/start`);
     return response.data.token;
   }
 
@@ -179,7 +205,9 @@ export class TxLineCustodianEngine {
       { headers: { Authorization: `Bearer ${this.cachedJwt}` } }
     );
 
-    return response.data.token || response.data;
+    const token = response.data.token || response.data;
+    this.persistCache();
+    return token;
   }
 
   public getSessionHeaders(): Record<string, string> {
@@ -190,5 +218,42 @@ export class TxLineCustodianEngine {
       Authorization: `Bearer ${this.cachedJwt}`,
       'X-Api-Token': this.cachedApiToken,
     };
+  }
+
+  private loadCache() {
+    try {
+      if (!fs.existsSync(this.cachePath)) return;
+      const raw = fs.readFileSync(this.cachePath, 'utf8');
+      const data = JSON.parse(raw) as {
+        cachedJwt?: string;
+        cachedApiToken?: string;
+        issuedAt?: number;
+        subscribeTxSig?: string;
+        lastLeagues?: number[];
+      };
+
+      this.cachedJwt = data.cachedJwt ?? null;
+      this.cachedApiToken = data.cachedApiToken ?? null;
+      this.issuedAt = data.issuedAt ?? null;
+      this.subscribeTxSig = data.subscribeTxSig ?? null;
+      this.lastLeagues = data.lastLeagues ?? [];
+    } catch (err) {
+      console.warn('[txline] failed to load local cache, starting fresh.', err);
+    }
+  }
+
+  private persistCache() {
+    try {
+      const data = {
+        cachedJwt: this.cachedJwt,
+        cachedApiToken: this.cachedApiToken,
+        issuedAt: this.issuedAt,
+        subscribeTxSig: this.subscribeTxSig,
+        lastLeagues: this.lastLeagues,
+      };
+      fs.writeFileSync(this.cachePath, JSON.stringify(data, null, 2), { mode: 0o600 });
+    } catch (err) {
+      console.warn('[txline] failed to persist local cache.', err);
+    }
   }
 }
