@@ -1,10 +1,10 @@
 # TxLINE API — Endpoints Used & Platform Issues
 
-Football Pulse integrates with **TxLINE devnet** (`https://txline-dev.txodds.com`) on **service level 1** (World Cup free tier).
+Football Pulse talks to **TxLINE devnet** (`https://txline-dev.txodds.com`) on **service level 1** — the free World Cup tier. This doc is a reference for which of their endpoints we actually call, and what we ran into on their side while building.
 
-This document lists the TxLINE endpoints from their official documentation that we called, and platform-side issues observed on their end — not application bugs in our codebase.
+For how we wire those calls into the app, see [Architecture](./ARCHITECTURE.md). For our own API surface, see [API Reference](./API.md).
 
-**Docs:** [txline-docs.txodds.com](https://txline-docs.txodds.com) · [OpenAPI YAML](https://txline.txodds.com/docs/docs.yaml)
+**Their docs:** [txline-docs.txodds.com](https://txline-docs.txodds.com) · [OpenAPI YAML](https://txline.txodds.com/docs/docs.yaml)
 
 ---
 

@@ -80,39 +80,6 @@ Server (lib/txline/)
 
 Authentication is fully server-side. The browser never holds a Solana wallet or TxLINE tokens.
 
-### Authless scalability
-
-All users share one TxLINE subscription. To handle concurrent traffic without overloading TxLINE or crashing the server:
-
-| Layer | What it does |
-|-------|----------------|
-| **TTL cache + singleflight** | Deduplicates identical TxLINE calls; short TTL for live scores, long TTL for archive data |
-| **Live SSE hub** | One upstream TxLINE stream per fixture, fan-out to all viewers |
-| **Per-IP rate limits** | Board, stream, chat, and general API buckets (see `middleware.ts`) |
-| **Connection caps** | Max 3 SSE streams per IP; max 32 active fixture hubs; 200 subscribers per hub |
-| **Board cache** | Full match-board responses cached 15–300 s with `stale-while-revalidate` |
-| **HTTP keep-alive** | Pooled connections to TxLINE REST endpoints |
-
-Tune via env vars in `.env.example` (`RATE_LIMIT_*`, `HUB_*`, `CACHE_*`). Check `GET /api/health` for live hub stats.
-
----
-
-## Design
-
-Football Pulse uses a premium broadcast palette:
-
-| Token | Hex | Usage |
-|-------|-----|-------|
-| Midnight Pitch | `#0D0914` | Page background |
-| Royal Shadow | `#1A1428` | Cards and surfaces |
-| Trophy Gold | `#E5B824` | Accents, live minute, winners |
-| Pulse Red | `#FF3B30` | Live indicator dot |
-| Frost White | `#F5F5F7` | Primary text |
-| Muted Lilac | `#9CA3AF` | Secondary text, timestamps |
-
-Typography: **Montserrat / Teko** for scores and headers, **Inter** for body copy. Live matches get a subtle pulsing glow on the minute badge — the "Pulse" effect.
-
----
 
 ## API routes
 
@@ -140,9 +107,15 @@ Typography: **Montserrat / Teko** for scores and headers, **Inter** for body cop
 
 ---
 
-## TxLINE integration
+## Technical documentation
 
-For a list of TxLINE API endpoints we called and platform-side issues observed on their service, see **[docs/TXLINE_INTEGRATION.md](docs/TXLINE_INTEGRATION.md)**.
+Full engineering docs live in **[docs/](docs/README.md)**:
+
+- [Architecture](docs/ARCHITECTURE.md) — data flow, auth model, live vs archive modes
+- [API Reference](docs/API.md) — routes, SSE events, error codes
+- [Operations](docs/OPERATIONS.md) — setup, credentials, deployment
+- [Scalability](docs/SCALABILITY.md) — caching, live hub, rate limits
+- [TxLINE Integration](docs/TXLINE_INTEGRATION.md) — external API reference and platform quirks
 
 ---
 
