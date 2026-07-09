@@ -1,19 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
-  --bg: #0a130f;
-  --surface: #101c16;
-  --surface-raised: #16261e;
-  --hairline: #24352c;
-  --floodlight: #f4f7f2;
-  --muted: #8fa396;
-  --pulse: #ff4433;
-  --pulse-dim: #7a2620;
-  --gold: #d4b106;
-
-  --font-display: 'Archivo Black', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --primary-electric: #2db30e;
+  --layer-base: #050a04;
+  --layer-card: #0e150b;
 }
 
 * {
@@ -24,9 +16,78 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
-  color: var(--floodlight);
-  font-family: var(--font-body);
+  background: var(--layer-base);
+  color: #ffffff;
+  font-family: var(--font-jakarta), 'Plus Jakarta Sans', system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--primary-electric);
+  color: #ffffff;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #040803;
+}
+::-webkit-scrollbar-thumb {
+  background: #1c2619;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-electric);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #040803;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #1c2619;
+  border-radius: 10px;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #0e150b 25%, #182214 50%, #0e150b 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite linear;
+}
+
+.glass-panel {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pulse-strip-vert {
+  width: 2px;
+  background: var(--primary-electric);
+  box-shadow: 0 0 10px var(--primary-electric);
+  animation: pulse-wipe 2.5s infinite ease-in-out;
+}
+
+.ecg-line {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: draw 8s linear infinite;
+}
+
+.fixture-card-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fixture-card-hover:hover {
+  transform: translateY(-4px);
+  border-color: rgba(45, 179, 14, 0.4);
+  box-shadow: 0 10px 30px -10px rgba(45, 179, 14, 0.2);
+}
+
+.on-air-glow {
+  animation: glow-pulse 2s infinite ease-in-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -34,12 +95,4 @@ body {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
-}
-
-a {
-  color: inherit;
-}
-
-button {
-  font-family: inherit;
 }
