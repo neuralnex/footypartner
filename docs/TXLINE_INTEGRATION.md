@@ -135,6 +135,26 @@ Issues observed from the API, docs, or devnet service — not bugs in our applic
 
 ---
 
+### 9. Phantom fixtures with no score feed
+
+**Endpoints:** `GET /api/fixtures/updates/{epochDay}/{hourOfDay}`, `GET /api/scores/historical/{fixtureId}`
+
+**Observed behaviour:** Some World Cup fixtures appear in the fixture feed (e.g. **Tunisia vs Switzerland**, `FixtureId` **17588400**, scheduled 25 Jun 2026) but return **zero** score snapshot, historical, or stream events after kickoff. The fixture row exists with teams and `StartTime`, yet there is no match data to consume.
+
+**Impact:** Callers cannot distinguish a cancelled/postponed match from a data gap without heuristics. Football Pulse marks these as `unavailable` when kickoff was more than three hours ago and no score history exists.
+
+---
+
+### 10. Finished matches report `GameState: F` during extra time
+
+**Endpoints:** `GET /api/scores/historical/{fixtureId}`, `GET /api/scores/stream`
+
+**Observed behaviour:** During knockout extra time, many events carry `GameState: F` (full time) while `Minutes` continues past 90 (e.g. 104', 116'). Separate ET phase codes (`ET1`, `ET2`) appear on some events but not consistently. The final `game_finalised` event is always `F`, even when the match went to **AET** or **penalties** — there is no reliable `FET` / `FPE` on the closing event.
+
+**Impact:** Products cannot rely on `GameState` alone to label knockout results. ET must be inferred from `Score.Participant*.ET1/ET2/PE` totals and/or minute values above 95 in the event timeline.
+
+---
+
 ## Summary
 
 | Category | Endpoints called | Not called |

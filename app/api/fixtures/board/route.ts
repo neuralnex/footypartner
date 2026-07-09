@@ -1,22 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorldCupFixturesForDay } from '@/lib/txline/fixtures';
-import { getScoreSnapshot } from '@/lib/txline/scores';
-import {
-  formatGameState,
-  formatMatchMinute,
-  isSoccerFinished,
-  isSoccerLive,
-  scoreFromSnapshot,
-} from '@/lib/txline/gameState';
 import { getEpochDay } from '@/lib/txline/dates';
 import { txlineCache } from '@/lib/infra/ttlCache';
 import { LOAD_CONFIG } from '@/lib/infra/loadConfig';
 import { mapWithConcurrency } from '@/lib/infra/concurrency';
 import { guardRequest, rateLimitResponse } from '@/lib/infra/apiGuard';
+import { boardFixtureFromResolved, resolveMatchData } from '@/lib/match/resolveMatchData';
 
 export const dynamic = 'force-dynamic';
 
-export type FixtureStatus = 'upcoming' | 'live' | 'finished';
+export type FixtureStatus = 'upcoming' | 'live' | 'finished' | 'unavailable';
 
 export interface BoardFixture {
   FixtureId: number;
@@ -28,65 +21,57 @@ export interface BoardFixture {
   gameState: string;
   gameStateLabel: string;
   minute: string;
+  resultLabel: 'FT' | 'AET' | 'Pens' | null;
   scoreHome: number | null;
   scoreAway: number | null;
   isPulse: boolean;
 }
 
 async function enrichFixture(
-  fixture: Awaited<ReturnType<typeof getWorldCupFixturesForDay>>[number]
+  fixture: Awaited<ReturnType<typeof getWorldCupFixturesForDay>>[number],
+  epochDayNum: number
 ): Promise<BoardFixture> {
   const home = fixture.Participant1IsHome ? fixture.Participant1 : fixture.Participant2;
   const away = fixture.Participant1IsHome ? fixture.Participant2 : fixture.Participant1;
   const now = Date.now();
 
-  const base: BoardFixture = {
-    FixtureId: fixture.FixtureId,
-    Competition: fixture.Competition,
-    StartTime: fixture.StartTime,
+  if (fixture.StartTime > now) {
+    return {
+      FixtureId: fixture.FixtureId,
+      Competition: fixture.Competition,
+      StartTime: fixture.StartTime,
+      homeTeam: home,
+      awayTeam: away,
+      status: 'upcoming',
+      gameState: 'NS',
+      gameStateLabel: 'Not started',
+      minute: '—',
+      resultLabel: null,
+      scoreHome: null,
+      scoreAway: null,
+      isPulse: false,
+    };
+  }
+
+  const resolved = await resolveMatchData(fixture.FixtureId, {
+    startTimeMs: fixture.StartTime,
+    competition: fixture.Competition,
     homeTeam: home,
     awayTeam: away,
-    status: fixture.StartTime > now ? 'upcoming' : 'upcoming',
-    gameState: 'NS',
-    gameStateLabel: 'Not started',
-    minute: '—',
-    scoreHome: null,
-    scoreAway: null,
-    isPulse: false,
-  };
+    participant1IsHome: fixture.Participant1IsHome,
+    epochDay: epochDayNum,
+  });
 
-  if (fixture.StartTime > now) {
-    return base;
-  }
-
-  try {
-    const scores = await getScoreSnapshot(fixture.FixtureId);
-    const latest = Array.isArray(scores) && scores.length > 0 ? scores[scores.length - 1] : null;
-
-    if (!latest) {
-      return { ...base, status: fixture.StartTime <= now ? 'finished' : 'upcoming' };
-    }
-
-    const live = isSoccerLive(latest.gameState);
-    const finished = isSoccerFinished(latest.gameState);
-    const score = scoreFromSnapshot(latest);
-
-    return {
-      ...base,
-      status: live ? 'live' : finished ? 'finished' : 'upcoming',
-      gameState: latest.gameState,
-      gameStateLabel: formatGameState(latest.gameState),
-      minute: formatMatchMinute(latest),
-      scoreHome: score.home,
-      scoreAway: score.away,
-      isPulse: live,
-    };
-  } catch {
-    return {
-      ...base,
-      status: fixture.StartTime <= now - 3 * 60 * 60 * 1000 ? 'finished' : 'upcoming',
-    };
-  }
+  return boardFixtureFromResolved(
+    {
+      FixtureId: fixture.FixtureId,
+      Competition: fixture.Competition,
+      StartTime: fixture.StartTime,
+      homeTeam: home,
+      awayTeam: away,
+    },
+    resolved
+  );
 }
 
 function boardCacheTtl(epochDay: number, fixtures: BoardFixture[]): number {
@@ -132,11 +117,12 @@ export async function GET(request: NextRequest) {
     const enriched = await mapWithConcurrency(
       fixtures,
       LOAD_CONFIG.boardConcurrency,
-      enrichFixture
+      (fixture) => enrichFixture(fixture, epochDayNum)
     );
 
     enriched.sort((a, b) => {
-      const rank = (s: FixtureStatus) => (s === 'live' ? 0 : s === 'upcoming' ? 1 : 2);
+      const rank = (s: FixtureStatus) =>
+      s === 'live' ? 0 : s === 'upcoming' ? 1 : s === 'unavailable' ? 3 : 2;
       const statusDiff = rank(a.status) - rank(b.status);
       if (statusDiff !== 0) return statusDiff;
       return a.StartTime - b.StartTime;

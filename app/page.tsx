@@ -1,27 +1,24 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { BOARD_TIMEZONE, getEpochDay } from '@/lib/txline/dates';
-
-function formatDayLabel(epochDay: number, today: number): string {
-  if (epochDay === today) return 'Today';
-  if (epochDay === today - 1) return 'Yesterday';
-  if (epochDay === today + 1) return 'Tomorrow';
-  const ms = epochDay * 86400000;
-  return new Date(ms).toLocaleDateString('en-GB', {
-    timeZone: BOARD_TIMEZONE,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-}
+import {
+  BOARD_TIMEZONE,
+  getEpochDay,
+  formatEpochDayLabel,
+  WC_2026_START_EPOCH_DAY,
+  WC_2026_DURATION_DAYS,
+} from '@/lib/txline/dates';
 
 function formatKickoff(ts: number): string {
-  return new Date(ts).toLocaleTimeString('en-GB', {
+  const parts = new Intl.DateTimeFormat('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
     timeZone: BOARD_TIMEZONE,
-  });
+  }).formatToParts(new Date(ts));
+  const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
+  const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
+  return `${hour}:${minute}`;
 }
 
 interface BoardFixture {
@@ -30,20 +27,33 @@ interface BoardFixture {
   StartTime: number;
   homeTeam: string;
   awayTeam: string;
-  status: 'upcoming' | 'live' | 'finished';
+  status: 'upcoming' | 'live' | 'finished' | 'unavailable';
   gameStateLabel: string;
   minute: string;
+  resultLabel: 'FT' | 'AET' | 'Pens' | null;
   scoreHome: number | null;
   scoreAway: number | null;
   isPulse: boolean;
 }
 
 export default function HomePage() {
-  const today = useMemo(() => getEpochDay(new Date()), []);
-  const [selectedDay, setSelectedDay] = useState(today);
+  const tournamentDays = useMemo(
+    () => Array.from({ length: WC_2026_DURATION_DAYS }, (_, i) => WC_2026_START_EPOCH_DAY + i),
+    []
+  );
+  const [today, setToday] = useState<number | null>(null);
+  const [selectedDay, setSelectedDay] = useState(WC_2026_START_EPOCH_DAY);
   const [fixtures, setFixtures] = useState<BoardFixture[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    const current = getEpochDay(new Date());
+    setToday(current);
+    if (current >= WC_2026_START_EPOCH_DAY && current < WC_2026_START_EPOCH_DAY + WC_2026_DURATION_DAYS) {
+      setSelectedDay(current);
+    }
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -120,7 +130,7 @@ export default function HomePage() {
         </div>
 
         <div className="mx-auto flex max-w-5xl items-center gap-2 overflow-x-auto px-4 pb-3">
-          {Array.from({ length: 18 }, (_, i) => today - 14 + i).map((day) => (
+          {tournamentDays.map((day) => (
             <button
               key={day}
               onClick={() => setSelectedDay(day)}
@@ -130,17 +140,21 @@ export default function HomePage() {
                   : 'text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--floodlight)]'
               }`}
             >
-              {formatDayLabel(day, today)}
+              {today === null ? '…' : formatEpochDayLabel(day, today)}
             </button>
           ))}
           <button
-            onClick={() => setSelectedDay((d) => d - 1)}
+            onClick={() => setSelectedDay((d) => Math.max(WC_2026_START_EPOCH_DAY, d - 1))}
             className="ml-auto shrink-0 rounded-lg px-3 py-2 text-xs text-[var(--muted)] hover:text-[var(--gold)]"
           >
             ← Earlier
           </button>
           <button
-            onClick={() => setSelectedDay((d) => d + 1)}
+            onClick={() =>
+              setSelectedDay((d) =>
+                Math.min(WC_2026_START_EPOCH_DAY + WC_2026_DURATION_DAYS - 1, d + 1)
+              )
+            }
             className="shrink-0 rounded-lg px-3 py-2 text-xs text-[var(--muted)] hover:text-[var(--gold)]"
           >
             Later →
@@ -192,7 +206,10 @@ function MatchCard({ fixture }: { fixture: BoardFixture }) {
       );
     }
     if (fixture.status === 'finished') {
-      return <span className="text-sm font-medium text-[var(--muted)]">FT</span>;
+      return <span className="text-sm font-medium text-[var(--muted)]">{fixture.minute}</span>;
+    }
+    if (fixture.status === 'unavailable') {
+      return <span className="text-sm font-medium text-[var(--muted)]">No data</span>;
     }
     return <span className="text-sm text-[var(--muted)]">{formatKickoff(fixture.StartTime)}</span>;
   };
@@ -240,6 +257,11 @@ function MatchCard({ fixture }: { fixture: BoardFixture }) {
       {fixture.status === 'finished' && (
         <p className="mt-3 text-center text-xs text-[var(--muted)]">
           {fixture.gameStateLabel} · tap to view match archive
+        </p>
+      )}
+      {fixture.status === 'unavailable' && (
+        <p className="mt-3 text-center text-xs text-[var(--muted)]">
+          Listed by TxLINE with no score feed — match may not have been played
         </p>
       )}
       {fixture.status === 'upcoming' && (

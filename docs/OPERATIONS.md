@@ -28,8 +28,23 @@ Fill in `.env`:
 | `GEMINI_API_KEY` | Yes | For `/chat` and live narratives |
 | `TXLINE_NETWORK` | No | `devnet` (default) or `mainnet` |
 | `TXLINE_SCORE_DELAY_MS` | No | Default `60000`. Gates AI narrative cadence on devnet. |
+| `DATABASE_URL` | No | PostgreSQL connection string. When set, fixtures and scores are persisted for fast archive reads. Paste the full URL in your host's env UI (Neon, Render, etc.) — `&` in query params is fine there; only POSIX `source .env` in a shell breaks on `&`. |
 
 Optional tuning vars for cache, rate limits, and hub caps are in `.env.example`.
+
+### PostgreSQL (optional, recommended for archive scores)
+
+```bash
+docker compose up -d
+```
+
+Set in `.env`:
+
+```
+DATABASE_URL=postgresql://pulse:pulse@localhost:5432/football_pulse
+```
+
+On boot, `instrumentation.ts` runs schema migrations (`fixtures`, `fixture_match_data`). The app works without Postgres — it falls back to live TxLINE fetches. With Postgres, finished matches are cached after the first board or fixture page load; live hub updates are also written during SSE sessions.
 
 ```bash
 npm run dev

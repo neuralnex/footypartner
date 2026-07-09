@@ -3,6 +3,7 @@ import { apiBaseUrl } from '@/lib/txline/config';
 import { txlineCache } from '@/lib/infra/ttlCache';
 import { LOAD_CONFIG } from '@/lib/infra/loadConfig';
 import { txlineHttp } from '@/lib/txline/http';
+import { parseScorePayload } from '@/lib/txline/normalizeScore';
 
 export interface SoccerScore {
   Goals: number;
@@ -110,8 +111,8 @@ async function fetchScoreSnapshot(fixtureId: number, asOf?: number) {
 
   return withFreshSession(async (headers) => {
     const url = `${apiBaseUrl}/scores/snapshot/${fixtureId}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    const response = await txlineHttp.get<ScoreSnapshot[]>(url, { headers });
-    return response.data;
+    const response = await txlineHttp.get<unknown>(url, { headers });
+    return parseScorePayload(response.data);
   });
 }
 
@@ -125,19 +126,8 @@ export async function getScoreUpdates(fixtureId: number) {
 async function fetchScoreUpdates(fixtureId: number) {
   return withFreshSession(async (headers) => {
     const url = `${apiBaseUrl}/scores/updates/${fixtureId}`;
-    const response = await txlineHttp.get<ScoreSnapshot[] | string>(url, { headers });
-
-    if (typeof response.data === 'string') {
-      const text: string = response.data;
-      const matches = Array.from(text.matchAll(/^data:\s*(\{[\s\S]*?\})(?:\r?\n|$)/gm)).map(m=>m[1]);
-      if (matches.length > 0) {
-        return matches.map((t) => {
-          try { return JSON.parse(t); } catch { return { _raw: t }; }
-        });
-      }
-      try { return JSON.parse(text); } catch { return [ { _raw: text } ]; }
-    }
-    return response.data;
+    const response = await txlineHttp.get<unknown>(url, { headers });
+    return parseScorePayload(response.data);
   });
 }
 
@@ -151,18 +141,8 @@ export async function getScoreHistorical(fixtureId: number) {
 async function fetchScoreHistorical(fixtureId: number) {
   return withFreshSession(async (headers) => {
     const url = `${apiBaseUrl}/scores/historical/${fixtureId}`;
-    const response = await txlineHttp.get<ScoreSnapshot[] | string>(url, { headers });
-    if (typeof response.data === 'string') {
-      const text: string = response.data;
-      const matches = Array.from(text.matchAll(/^data:\s*(\{[\s\S]*?\})(?:\r?\n|$)/gm)).map(m=>m[1]);
-      if (matches.length > 0) {
-        return matches.map((t) => {
-          try { return JSON.parse(t); } catch { return { _raw: t }; }
-        });
-      }
-      try { return JSON.parse(text); } catch { return [ { _raw: text } ]; }
-    }
-    return response.data;
+    const response = await txlineHttp.get<unknown>(url, { headers });
+    return parseScorePayload(response.data);
   });
 }
 

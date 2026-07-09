@@ -5,6 +5,7 @@ import {
   describeScoreEvent,
   extractLineups,
   formatGameState,
+  formatMatchEndLabel,
   formatMatchMinute,
   isSoccerLive,
   scoreFromSnapshot,
@@ -95,12 +96,13 @@ export default function FixtureDashboard({
   const [chatLoading, setChatLoading] = useState(false);
   const feedIdRef = useRef(0);
   const seenSeqRef = useRef(new Set<number>());
+  const historyRef = useRef<ScoreSnapshot[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const applyLatestScore = (latest: ScoreSnapshot) => {
+  const applyLatestScore = (latest: ScoreSnapshot, history = historyRef.current) => {
     setCurrentScore(scoreFromSnapshot(latest));
-    setGameState(formatGameState(latest.gameState));
-    setMatchMinute(formatMatchMinute(latest));
+    setGameState(formatMatchEndLabel(latest, history));
+    setMatchMinute(formatMatchMinute(latest, history));
     setIsLive(isSoccerLive(latest.gameState));
 
     if (latest.stats || latest.possession !== undefined) {
@@ -122,14 +124,14 @@ export default function FixtureDashboard({
     seenSeqRef.current.add(score.seq);
 
     const action = describeScoreEvent(score);
-    if (!action || action === 'Match update') return;
+    if (!action) return;
 
     feedIdRef.current += 1;
     setScoreEvents((prev) =>
       [
         {
           id: feedIdRef.current,
-          minute: formatMatchMinute(score),
+          minute: formatMatchMinute(score, historyRef.current),
           action,
           seq: score.seq,
         },
@@ -144,58 +146,42 @@ export default function FixtureDashboard({
 
   useEffect(() => {
     const fetchInitial = async () => {
-      let live = initialPulse;
-
       try {
-        const res = await fetch(`/api/scores/snapshot?fixtureId=${fixtureId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            const latest = data[data.length - 1] as ScoreSnapshot;
-            applyLatestScore(latest);
-            live = isSoccerLive(latest.gameState);
-            setIsLive(live);
-            setIsPulse(live);
-            data.forEach((row: ScoreSnapshot) => pushScoreEvent(row));
-          }
+        const res = await fetch(`/api/fixtures/${fixtureId}/match-data?home=${encodeURIComponent(homeTeam)}&away=${encodeURIComponent(awayTeam)}`);
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const live = data.status === 'live';
+        const history = Array.isArray(data.history) ? data.history : [];
+        historyRef.current = history;
+
+        if (data.latest) {
+          applyLatestScore(data.latest as ScoreSnapshot, history);
+          setIsLive(live);
+          setIsPulse(live);
+        } else if (data.status === 'unavailable') {
+          setGameState('No coverage');
+          setMatchMinute('—');
         }
 
-        if (!live) {
-          const histRes = await fetch(`/api/scores/historical?fixtureId=${fixtureId}`);
-          if (histRes.ok) {
-            const hist = await histRes.json();
-            if (Array.isArray(hist) && hist.length > 0) {
-              const latest = hist[hist.length - 1] as ScoreSnapshot;
-              applyLatestScore(latest);
-              hist.forEach((row: ScoreSnapshot) => pushScoreEvent(row));
-            }
-          }
+        history.forEach((row: ScoreSnapshot) => pushScoreEvent(row));
+
+        if (data.odds?.probabilities) {
+          setLatestProbs({
+            home: data.odds.probabilities.homeWin,
+            draw: data.odds.probabilities.draw,
+            away: data.odds.probabilities.awayWin,
+          });
+          setOddsBookmaker(data.odds.bookmaker);
+          setOddsMarkets(data.odds.markets ?? []);
         }
       } catch (err) {
         console.warn('[dashboard] initial load failed:', err);
       }
-
-      try {
-        const oddsRes = await fetch(`/api/fixtures/${fixtureId}/odds?source=snapshot`);
-        if (oddsRes.ok) {
-          const odds = await oddsRes.json();
-          if (odds.probabilities) {
-            setLatestProbs({
-              home: odds.probabilities.homeWin,
-              draw: odds.probabilities.draw,
-              away: odds.probabilities.awayWin,
-            });
-          }
-          setOddsBookmaker(odds.bookmaker);
-          setOddsMarkets(odds.markets ?? []);
-        }
-      } catch {
-
-      }
     };
 
     fetchInitial();
-  }, [fixtureId, initialPulse]);
+  }, [fixtureId, homeTeam, awayTeam]);
 
   useEffect(() => {
     if (!isPulse) {

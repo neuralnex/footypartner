@@ -12,6 +12,9 @@ import {
 } from '@/lib/txline/scores';
 import { isSoccerLive } from '@/lib/txline/gameState';
 import { readSseMessages, parseSseData } from '@/lib/txline/sse';
+import { deriveMatchStatus } from '@/lib/txline/normalizeScore';
+import { isDatabaseEnabled } from '@/lib/db/pool';
+import { upsertMatchData } from '@/lib/db/fixtureStore';
 import { LOAD_CONFIG } from '@/lib/infra/loadConfig';
 
 const NARRATIVE_COOLDOWN_MS = Number(process.env.TXLINE_SCORE_DELAY_MS ?? '60000');
@@ -43,6 +46,7 @@ class FixtureLiveHub {
   private latestScore: ScoreSnapshot | null = null;
   private latestOdds: NormalizedMatchState | null = null;
   private latestSnapshot: ScoreSnapshot[] | null = null;
+  private scoreHistory: ScoreSnapshot[] = [];
   private matchIsLive = false;
   private lastNarrativeKey = '';
   private lastNarrativeAt = 0;
@@ -118,6 +122,31 @@ class FixtureLiveHub {
       gameState: score.gameState,
       isLive: this.matchIsLive,
     });
+
+    if (!this.scoreHistory.some((row) => row.seq === score.seq)) {
+      this.scoreHistory.push(score);
+      if (this.scoreHistory.length > 2000) {
+        this.scoreHistory = this.scoreHistory.slice(-2000);
+      }
+    }
+
+    void this.persistToDatabase();
+  }
+
+  private async persistToDatabase(): Promise<void> {
+    if (!isDatabaseEnabled() || !this.latestScore) return;
+
+    const status = deriveMatchStatus(this.latestScore, this.latestScore.startTime);
+    try {
+      await upsertMatchData({
+        fixtureId: this.fixtureId,
+        status: status === 'upcoming' ? 'live' : status,
+        latest: this.latestScore,
+        history: this.scoreHistory,
+        odds: this.latestOdds,
+      });
+    } catch {
+    }
   }
 
   private applyOdds(normalized: NormalizedMatchState, source: string): void {
@@ -160,6 +189,7 @@ class FixtureLiveHub {
       const payloads = await getOddsUpdates(this.fixtureId);
       if (!payloads?.length) return;
       this.applyOdds(TxLineDataParser.parseOddsPayloads(payloads), 'poll');
+      void this.persistToDatabase();
       await this.maybeNarrative();
     } catch (err) {
       this.broadcast('error', { source: 'odds', message: String(err) });
@@ -186,6 +216,7 @@ class FixtureLiveHub {
       const snapshot = await getScoreSnapshot(this.fixtureId);
       if (Array.isArray(snapshot) && snapshot.length > 0) {
         this.latestSnapshot = snapshot;
+        this.scoreHistory = [...snapshot];
         for (const row of snapshot) this.applyScore(row, 'snapshot');
         this.broadcast('snapshot', snapshot);
       }

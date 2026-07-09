@@ -1,7 +1,8 @@
 import FixtureDashboard from './FixtureDashboard';
 import { getFixtureById } from '@/lib/txline/fixtures';
-import { getScoreSnapshot } from '@/lib/txline/scores';
+import { resolveMatchData } from '@/lib/match/resolveMatchData';
 import { isSoccerLive } from '@/lib/txline/gameState';
+import { getEpochDay } from '@/lib/txline/dates';
 
 export default async function FixturePage({
   params,
@@ -12,13 +13,20 @@ export default async function FixturePage({
 }) {
   const { fixtureId } = await params;
   const { home, away } = await searchParams;
+  const fixtureIdNum = Number(fixtureId);
 
   let homeTeam = home;
   let awayTeam = away;
+  let startTimeMs = 0;
+  let competition = 'World Cup';
+  let participant1IsHome = true;
 
-  if (!homeTeam || !awayTeam) {
-    const fixture = await getFixtureById(Number(fixtureId));
-    if (fixture) {
+  const fixture = await getFixtureById(fixtureIdNum);
+  if (fixture) {
+    startTimeMs = fixture.StartTime;
+    competition = fixture.Competition;
+    participant1IsHome = fixture.Participant1IsHome;
+    if (!homeTeam || !awayTeam) {
       if (fixture.Participant1IsHome) {
         homeTeam = fixture.Participant1;
         awayTeam = fixture.Participant2;
@@ -31,11 +39,17 @@ export default async function FixturePage({
 
   let isPulse = false;
   try {
-    const scores = await getScoreSnapshot(Number(fixtureId));
-    const latest = Array.isArray(scores) && scores.length > 0 ? scores[scores.length - 1] : null;
-    isPulse = isSoccerLive(latest?.gameState);
+    const resolved = await resolveMatchData(fixtureIdNum, {
+      startTimeMs,
+      competition,
+      homeTeam: homeTeam ?? 'Home',
+      awayTeam: awayTeam ?? 'Away',
+      participant1IsHome,
+      epochDay: startTimeMs ? getEpochDay(new Date(startTimeMs)) : undefined,
+    });
+    isPulse = isSoccerLive(resolved.latest?.gameState) || resolved.status === 'live';
   } catch {
-
+    isPulse = false;
   }
 
   return (
