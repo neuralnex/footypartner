@@ -1,4 +1,4 @@
-// app/api/fixtures/[fixtureId]/scores/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getScoreUpdates } from '@/lib/txline/scores';
 

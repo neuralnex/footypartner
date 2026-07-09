@@ -1,8 +1,3 @@
-// lib/txline/config.ts
-//
-// Verified against https://txline-docs.txodds.com/documentation/quickstart
-// and cross-checked against the txoracle IDL's `address` field and
-// `TXLINE_MINT` constant (they match exactly).
 
 import { PublicKey } from '@solana/web3.js';
 
@@ -37,5 +32,4 @@ export const activeConfig = TXLINE_CONFIG[ACTIVE_NETWORK];
 export const apiOrigin = process.env.TXLINE_API_ORIGIN || activeConfig.apiOrigin;
 export const apiBaseUrl = `${apiOrigin}/api`;
 
-// Confirmed: service level 1 is the World Cup / Intl Friendlies free tier.
 export const WORLD_CUP_FREE_SERVICE_LEVEL = 1;

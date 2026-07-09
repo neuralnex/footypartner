@@ -40,7 +40,7 @@ export default function PulseMeter({ history }: { history: Point[] }) {
           </linearGradient>
         </defs>
 
-        {/* faint gridlines */}
+        {}
         {[0.25, 0.5, 0.75].map((f) => (
           <line
             key={f}
@@ -54,13 +54,13 @@ export default function PulseMeter({ history }: { history: Point[] }) {
           />
         ))}
 
-        {/* area between lines subtle fill */}
+        {}
         <path d={`${homePath} L ${toX(history[history.length - 1].minute)} ${height} L ${toX(history[0].minute)} ${height} Z`} fill="url(#fillGradient)" />
 
         <path d={awayPath} fill="none" stroke="#ec4899" strokeWidth={2} opacity={0.95} />
         <path d={homePath} fill="none" stroke="#06b6d4" strokeWidth={2.5} opacity={0.95} />
 
-        {/* minute ticks */}
+        {}
         {[0, 15, 30, 45, 60, 75, 90].map((m) => (
           <text key={m} x={toX(m)} y={height - 4} fontSize={10} fill="#9CA3AF" textAnchor="middle">{`${m}'`}</text>
         ))}

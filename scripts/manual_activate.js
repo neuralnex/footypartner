@@ -1,5 +1,5 @@
 const fs = require('fs');
-// If env var not set (scripts run outside Next), try loading .env manually
+
 if (!process.env.SOLANA_MASTER_PRIVATE_KEY) {
   const envPath = process.cwd() + '/.env';
   if (fs.existsSync(envPath)) {
@@ -29,7 +29,7 @@ const axios = require('axios');
     else if (bs58.decode) secret = bs58.decode(priv);
     else if (bs58.default && bs58.default.decode) secret = bs58.default.decode(priv);
     else throw new Error('bs58 decode not available');
-    const messageString = `${subscribeTxSig}::${cachedJwt}`; // no leagues
+    const messageString = `${subscribeTxSig}::${cachedJwt}`;
     const message = new TextEncoder().encode(messageString);
     const signature = nacl.sign.detached(message, secret);
     const walletSignature = Buffer.from(signature).toString('base64');

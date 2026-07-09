@@ -17,7 +17,6 @@ export async function GET(
   try {
     const historicalScores = await getScoreHistorical(fixtureIdNum);
 
-    // Extract H2H record by analyzing historical scores
     let homeWins = 0;
     let awayWins = 0;
     let draws = 0;

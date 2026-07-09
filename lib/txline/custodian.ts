@@ -1,10 +1,3 @@
-// lib/txline/custodian.ts
-//
-// Server-side custodial onboarding: the backend holds one master Solana
-// keypair, subscribes it on-chain to the World Cup free tier once, and
-// caches the resulting JWT + X-Api-Token so the frontend never touches
-// a wallet. See config.ts header for what's been verified against the
-// real docs vs. inferred.
 
 import * as anchor from '@coral-xyz/anchor';
 import {
@@ -61,7 +54,6 @@ export class TxLineCustodianEngine {
     this.cachePath = process.env.TXLINE_CACHE_PATH ?? path.resolve(process.cwd(), '.txline-cache.json');
     this.loadCache();
 
-    // Anchor 0.30+ IDL embeds the program address in the IDL itself.
     this.program = new anchor.Program(txoracleIdl as anchor.Idl, this.provider);
 
     if (!this.program.programId.equals(activeConfig.programId)) {
@@ -105,22 +97,13 @@ export class TxLineCustodianEngine {
     return { jwt: this.cachedJwt, apiToken: this.cachedApiToken };
   }
 
-  /**
-   * Cheap refresh path: gets a fresh guest JWT and re-activates against the
-   * SAME confirmed subscribe tx. Deliberately does NOT call subscribe()
-   * again — the on-chain subscription persists for its `weeks` duration,
-   * and re-subscribing while active hits the IDL's ActiveSubscription
-   * error. Falls back to a full bootCustodianPipeline() if no prior
-   * subscribe tx exists yet.
-   */
   public async refreshCredentials(): Promise<TxLineCredentials> {
     if (!this.subscribeTxSig) {
       return this.bootCustodianPipeline();
     }
     console.log('[txline] refreshing JWT + api token (subscription already active)...');
     this.cachedJwt = await this.getGuestJwt();
-    // If we already have an active API token, do not re-activate against the
-    // same subscribeTxSig – the remote service rejects re-activation with 403.
+
     if (!this.cachedApiToken) {
       this.cachedApiToken = await this.activateApiToken(this.subscribeTxSig, this.lastLeagues);
     } else {
@@ -131,7 +114,6 @@ export class TxLineCustodianEngine {
     return { jwt: this.cachedJwt, apiToken: this.cachedApiToken };
   }
 
-  /** Age of the current credentials in ms — used by the singleton to decide when to refresh. */
   public credentialAgeMs(): number {
     if (!this.issuedAt) return Infinity;
     return Date.now() - this.issuedAt;

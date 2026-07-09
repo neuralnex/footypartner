@@ -9,13 +9,13 @@ if(!id){ console.error('Usage: node scripts/pull_scores_central.js <fixtureId>')
   try{
     const ures = await fetch(`http://localhost:3000/api/scores/updates?fixtureId=${id}`);
     const utext = await ures.text();
-    // Some upstream endpoints emit SSE-like packets. Attempt to parse `data:` blocks.
+
     if (utext.trim().startsWith('data:')) {
       const blocks = utext.split('\n\n').map(b=>b.trim()).filter(Boolean);
       const parsed = [];
       for(const b of blocks){
         const dataLines = b.split('\n').filter(l=>l.startsWith('data:')).map(l=>l.replace(/^data:\s*/,'')).join('\n');
-        try{ parsed.push(JSON.parse(dataLines)); }catch(e){ /* ignore parse errors */ }
+        try{ parsed.push(JSON.parse(dataLines)); }catch(e){  }
       }
       console.log('/api/scores/updates/ parsed_events=', parsed.length);
       if(parsed.length>0) console.log('LATEST_PARSED', JSON.stringify(parsed[parsed.length-1]).slice(0,400));

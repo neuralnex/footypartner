@@ -1,4 +1,4 @@
-// app/api/fixtures/[fixtureId]/narrative/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 import { withFreshSession } from '@/lib/txline/singleton';

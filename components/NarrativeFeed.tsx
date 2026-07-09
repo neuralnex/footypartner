@@ -8,12 +8,12 @@ interface NarrativeUpdate {
   id: string;
   timestamp: string;
   phaseTitle: string;
-  content: string; // markdown-lite
+  content: string;
   scenarios: string[];
 }
 
 function renderMarkdownLite(md: string) {
-  // very small markdown: **bold** -> <strong>
+
   const parts = md.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((p, i) => {
     if (/^\*\*/.test(p)) {

@@ -1,26 +1,14 @@
-// lib/txline/singleton.ts
-//
-// Next.js dev mode hot-reloads modules per request, which would otherwise
-// re-instantiate the custodian (and re-run the on-chain subscribe tx) on
-// every file save. Cache it on globalThis, same pattern Prisma/DB clients
-// use in Next.js, to survive hot reloads.
-//
-// Also runs a background refresh timer: JWTs are typically short-lived
-// (docs don't state an exact TTL), so for a live hackathon demo it's safer
-// to proactively refresh every 20 minutes than to find out mid-demo that a
-// request 401'd. Refresh re-activates against the existing subscribe tx —
-// it does not resubmit an on-chain transaction.
 
 import { TxLineCustodianEngine } from './custodian';
 
-const REFRESH_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes
+const REFRESH_INTERVAL_MS = 20 * 60 * 1000;
 
 declare global {
-  // eslint-disable-next-line no-var
+
   var __txlineCustodian: TxLineCustodianEngine | undefined;
-  // eslint-disable-next-line no-var
+
   var __txlineBootPromise: Promise<void> | undefined;
-  // eslint-disable-next-line no-var
+
   var __txlineRefreshTimer: ReturnType<typeof setInterval> | undefined;
 }
 
@@ -53,11 +41,6 @@ function startRefreshTimer() {
   }, REFRESH_INTERVAL_MS);
 }
 
-/**
- * Wrap any TxLINE API call with this — if it 401s, refreshes credentials
- * once and retries. Keeps a live demo alive even if the timer hasn't
- * fired yet.
- */
 export async function withFreshSession<T>(
   fn: (headers: Record<string, string>) => Promise<T>
 ): Promise<T> {

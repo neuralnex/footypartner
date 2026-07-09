@@ -8,16 +8,15 @@ if(!id){ console.error('Usage: node scripts/pull_fixture.js <fixtureId>'); proce
       try{
         const res = await fetch(`http://localhost:3000/api/fixtures/${id}/${ep}`);
         let text = await res.text();
-        // Unwrap JSON-quoted string responses that contain SSE payloads
+
         const ttrim = text.trim();
         if (ttrim.startsWith('"') || ttrim.startsWith("'")) {
           try {
             const inner = JSON.parse(text);
             if (typeof inner === 'string') text = inner;
-          } catch (e) { /* keep original */ }
+          } catch (e) {  }
         }
 
-        // Detect SSE-style responses that include lines like "data: {...}\n"
         if (/^data:\s*\{/m.test(text) || /^event:/m.test(text)) {
           const matches = Array.from(text.matchAll(/^data:\s*(\{[\s\S]*?\})(?:\r?\n|$)/gm)).map(m=>m[1]);
           const parsed = matches.map((t)=>{
