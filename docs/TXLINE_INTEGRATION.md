@@ -1,6 +1,6 @@
 # TxLINE API — Endpoints Used & Platform Issues
 
-Football Pulse talks to **TxLINE devnet** (`https://txline-dev.txodds.com`) on **service level 1** — the free World Cup tier. This doc is a reference for which of their endpoints we actually call, and what we ran into on their side while building.
+FootyPartner talks to **TxLINE devnet** (`https://txline-dev.txodds.com`) on **service level 1** — the free World Cup tier. This doc is a reference for which of their endpoints we actually call, and what we ran into on their side while building.
 
 For how we wire those calls into the app, see [Architecture](./ARCHITECTURE.md). For our own API surface, see [API Reference](./API.md).
 
@@ -141,7 +141,7 @@ Issues observed from the API, docs, or devnet service — not bugs in our applic
 
 **Observed behaviour:** Some World Cup fixtures appear in the fixture feed (e.g. **Tunisia vs Switzerland**, `FixtureId` **17588400**, scheduled 25 Jun 2026) but return **zero** score snapshot, historical, or stream events after kickoff. The fixture row exists with teams and `StartTime`, yet there is no match data to consume.
 
-**Impact:** Callers cannot distinguish a cancelled/postponed match from a data gap without heuristics. Football Pulse marks these as `unavailable` when kickoff was more than three hours ago and no score history exists.
+**Impact:** Callers cannot distinguish a cancelled/postponed match from a data gap without heuristics. FootyPartner marks these as `unavailable` when kickoff was more than three hours ago and no score history exists.
 
 ---
 

@@ -88,7 +88,7 @@ export default function FixtureDashboard({
     {
       role: 'assistant',
       content: initialPulse
-        ? `Pulse is active! Ask me anything about ${homeTeam} vs ${awayTeam} as the match unfolds.`
+        ? `FootyPartner is live! Ask me anything about ${homeTeam} vs ${awayTeam} as the match unfolds.`
         : `Viewing match archive for ${homeTeam} vs ${awayTeam}. Ask me about the final score or key moments.`,
     },
   ]);
@@ -303,7 +303,7 @@ export default function FixtureDashboard({
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
               {isPulse ? (
-                <span className="text-[var(--gold)]">● Pulse active</span>
+                <span className="text-[var(--gold)]">● Live</span>
               ) : (
                 'Match archive'
               )}
@@ -359,7 +359,7 @@ export default function FixtureDashboard({
           )}
           {!isPulse && (
             <p className="mt-4 text-center text-xs text-[var(--muted)]">
-              Pulse AI summaries and live odds are only available during live matches.
+              FootyPartner AI summaries and live odds are only available during live matches.
             </p>
           )}
         </section>
@@ -410,7 +410,7 @@ export default function FixtureDashboard({
               </h2>
               {!isPulse && feed.length === 0 && (
                 <p className="text-sm text-[var(--muted)]">
-                  Archive view — explore events and stats from this match. Pulse summaries appear during live play.
+                  Archive view — explore events and stats from this match. Live summaries appear during play.
                 </p>
               )}
               {isPulse && feed.length === 0 && (

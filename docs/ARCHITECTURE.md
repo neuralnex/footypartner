@@ -1,6 +1,6 @@
 # Architecture
 
-Football Pulse is a **live match companion** for World Cup 2026. Users browse fixtures on a day-by-day board, open a match, and get scores, events, stats, odds, and AI commentary — without signing in or connecting a wallet.
+FootyPartner is a **live match companion** for World Cup 2026. Users browse fixtures on a day-by-day board, open a match, and get scores, events, stats, odds, and AI commentary — without signing in or connecting a wallet.
 
 That last point matters architecturally: **all TxLINE access goes through one server-side subscription**. The browser never sees JWTs, API tokens, or Solana keys.
 
@@ -45,11 +45,11 @@ Credentials persist in `.txline-cache.json` so restarts don't re-subscribe on-ch
 
 ---
 
-## Two modes: Pulse vs archive
+## Two modes: live vs archive
 
-A fixture is either **live** (Pulse mode) or **not** (archive mode). We detect this from the latest score snapshot's `gameState` — soccer uses phase codes like `H1`, `HT`, `H2`, not just a generic `LIVE` string. See `lib/txline/gameState.ts`.
+A fixture is either **live** (FootyPartner live mode) or **not** (archive mode). We detect this from the latest score snapshot's `gameState` — soccer uses phase codes like `H1`, `HT`, `H2`, not just a generic `LIVE` string. See `lib/txline/gameState.ts`.
 
-| Capability | Pulse (live) | Archive (finished / upcoming) |
+| Capability | Live | Archive (finished / upcoming) |
 |------------|--------------|-------------------------------|
 | Real-time score SSE | Yes | No |
 | Odds tab + stream | Yes | Snapshot only, if available |
@@ -105,7 +105,7 @@ The stream route (`app/api/fixtures/[id]/stream/route.ts`) is thin: it rate-limi
 
 ### AI layer
 
-**Narratives** (`lib/ai/narrativeEngine.ts`) — Gemini receives normalized odds probabilities, current score, and stats. It returns three pillars: match pulse, why it matters, what-if. Only generated when the match is live and odds/score state has changed.
+**Narratives** (`lib/ai/narrativeEngine.ts`) — Gemini receives normalized odds probabilities, current score, and stats. It returns three pillars: match summary, why it matters, what-if. Only generated when the match is live and odds/score state has changed.
 
 **Chat** (`lib/ai/chatEngine.ts`) — `POST /api/fixtures/[id]/chat` sends the conversation history plus a context block built from the latest score snapshot, odds, and recent events. Works in archive mode too.
 

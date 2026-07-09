@@ -1,22 +1,22 @@
-# Football Pulse
+# FootyPartner
 
 **A live match companion for World Cup 2026 — powered by TxLINE and Gemini.**
 
-Football Pulse explains the game as it unfolds. Browse every World Cup fixture from group stage through knockouts, follow live scores and demargined odds in real time, and get AI-generated match summaries plus an interactive chat panel — all in a broadcast-style dark UI built for companion viewing alongside the match.
+FootyPartner explains the game as it unfolds. Browse every World Cup fixture from group stage through knockouts, follow live scores and demargined odds in real time, and get AI-generated match summaries plus an interactive chat panel — all in a broadcast-style dark UI built for companion viewing alongside the match.
 
 ---
 
 ## What it does
 
 ### Match board
-The homepage is a day-by-day fixture feed for the World Cup. Scroll through dates, search by team, and tap any match to open it. Live fixtures show a pulsing indicator and a **Pulse** badge; finished matches open as archives with full score history.
+The homepage is a day-by-day fixture feed for the World Cup. Scroll through dates, search by team, and tap any match to open it. Live fixtures show a pulsing indicator and a **Live** badge; finished matches open as archives with full score history.
 
 ### Live companion (`/fixture/[id]`)
-When a match is in play, Football Pulse becomes a full companion dashboard:
+When a match is in play, FootyPartner becomes a full companion dashboard:
 
 | Tab | What you get |
 |-----|--------------|
-| **Summary** | AI narrative pillars — match pulse, why it matters, what-if scenarios |
+| **Summary** | AI narrative pillars — match summary, why it matters, what-if scenarios |
 | **Events** | Goal, card, and substitution timeline |
 | **Stats** | Possession, shots, passes, and more from the TxLINE scores feed |
 | **Lineups** | Starting XI and bench |

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { FootballPulseChatEngine, type ChatMessage } from '@/lib/ai/chatEngine';
+import { FootyPartnerChatEngine, type ChatMessage } from '@/lib/ai/chatEngine';
 import { getScoreSnapshot } from '@/lib/txline/scores';
 import { describeScoreEvent } from '@/lib/txline/gameState';
 import { getOddsSnapshot, getOddsUpdates } from '@/lib/txline/odds';
@@ -71,7 +71,7 @@ export async function POST(
           .filter(Boolean)
       : [];
 
-    const engine = new FootballPulseChatEngine();
+    const engine = new FootyPartnerChatEngine();
     const reply = await engine.reply(messages, {
       fixtureId: fixtureIdNum,
       homeTeam,

@@ -1,6 +1,6 @@
 # Operations
 
-How to run Football Pulse locally, what happens on first boot, and what to watch in production.
+How to run FootyPartner locally, what happens on first boot, and what to watch in production.
 
 ---
 
@@ -41,7 +41,7 @@ docker compose up -d
 Set in `.env`:
 
 ```
-DATABASE_URL=postgresql://pulse:pulse@localhost:5432/football_pulse
+DATABASE_URL=postgresql://footypartner:footypartner@localhost:5432/footypartner
 ```
 
 On boot, `instrumentation.ts` runs schema migrations (`fixtures`, `fixture_match_data`). The app works without Postgres — it falls back to live TxLINE fetches. With Postgres, finished matches are cached after the first board or fixture page load; live hub updates are also written during SSE sessions.

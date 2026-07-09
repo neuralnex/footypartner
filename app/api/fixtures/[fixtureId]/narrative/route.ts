@@ -4,7 +4,7 @@ import axios from 'axios';
 import { withFreshSession } from '@/lib/txline/singleton';
 import { TxLineDataParser, RawOddsPayload, NormalizedMatchState } from '@/lib/txline/parser';
 import { apiBaseUrl } from '@/lib/txline/config';
-import { FootballPulseNarrativeEngine } from '@/lib/ai/narrativeEngine';
+import { FootyPartnerNarrativeEngine } from '@/lib/ai/narrativeEngine';
 
 export async function GET(
   request: NextRequest,
@@ -29,7 +29,7 @@ export async function GET(
       return TxLineDataParser.parseLiveOdds(oddsResponse.data);
     });
 
-    const narrativeEngine = new FootballPulseNarrativeEngine();
+    const narrativeEngine = new FootyPartnerNarrativeEngine();
     const narrative = await narrativeEngine.generateNarrative(normalized, homeTeam, awayTeam);
 
     return NextResponse.json({ state: normalized, narrative });

@@ -1,6 +1,6 @@
-# Football Pulse — Technical Documentation
+# FootyPartner — Technical Documentation
 
-This folder is the engineering reference for Football Pulse. The [README](../README.md) at the repo root is the product overview; what's here is how the thing actually works.
+This folder is the engineering reference for FootyPartner. The [README](../README.md) at the repo root is the product overview; what's here is how the thing actually works.
 
 ## What's in here
 

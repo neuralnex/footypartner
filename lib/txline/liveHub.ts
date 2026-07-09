@@ -1,7 +1,7 @@
 import { withFreshSession } from '@/lib/txline/singleton';
 import { TxLineDataParser, type NormalizedMatchState, type RawOddsPayload } from '@/lib/txline/parser';
 import { apiBaseUrl } from '@/lib/txline/config';
-import { FootballPulseNarrativeEngine } from '@/lib/ai/narrativeEngine';
+import { FootyPartnerNarrativeEngine } from '@/lib/ai/narrativeEngine';
 import { getOddsSnapshot, getOddsUpdates } from '@/lib/txline/odds';
 import {
   getScoreSnapshot,
@@ -50,7 +50,7 @@ class FixtureLiveHub {
   private matchIsLive = false;
   private lastNarrativeKey = '';
   private lastNarrativeAt = 0;
-  private narrativeEngine: FootballPulseNarrativeEngine | null = null;
+  private narrativeEngine: FootyPartnerNarrativeEngine | null = null;
 
   private readonly seenSeq = new Set<number>();
   private readonly seenOddsMsg = new Set<string>();
@@ -58,7 +58,7 @@ class FixtureLiveHub {
   constructor(fixtureId: number) {
     this.fixtureId = fixtureId;
     try {
-      this.narrativeEngine = new FootballPulseNarrativeEngine();
+      this.narrativeEngine = new FootyPartnerNarrativeEngine();
     } catch {
       this.narrativeEngine = null;
     }
@@ -87,7 +87,7 @@ class FixtureLiveHub {
   private replay(listener: HubListener): void {
     listener('meta', {
       devnetDelaySec: Math.round(NARRATIVE_COOLDOWN_MS / 1000),
-      message: 'Shared Pulse feed — one upstream connection, many viewers.',
+      message: 'Shared FootyPartner feed — one upstream connection, many viewers.',
     });
     if (this.latestSnapshot) listener('snapshot', this.latestSnapshot);
     if (this.latestScore) {
@@ -236,7 +236,7 @@ class FixtureLiveHub {
     if (this.matchIsLive) {
       await this.pollScores();
     } else {
-      this.broadcast('meta', { message: 'Match not live — archive mode. Pulse stream idle.' });
+      this.broadcast('meta', { message: 'Match not live — archive mode. Live stream idle.' });
     }
   }
 

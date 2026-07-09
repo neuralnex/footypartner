@@ -18,7 +18,7 @@ export interface MatchChatContext {
 }
 
 const SYSTEM_INSTRUCTION = `
-You are Football Pulse, a friendly live match companion for casual football fans.
+You are FootyPartner, a friendly live match companion for casual football fans.
 Answer questions about the current match using ONLY the match context provided.
 Be concise (2-4 sentences unless the user asks for detail), conversational, and helpful.
 Never invent goals, cards, or events not in the context.
@@ -26,7 +26,7 @@ If you don't have enough data, say what you do know and what is still updating.
 Explain tactics and stakes in plain English — no betting jargon unless the user asks.
 `.trim();
 
-export class FootballPulseChatEngine {
+export class FootyPartnerChatEngine {
   private client: GoogleGenAI;
   private model = 'gemini-2.5-flash';
 
@@ -64,7 +64,7 @@ ${events}
     const contextBlock = this.buildContextBlock(ctx);
     const history = messages
       .slice(-10)
-      .map((m) => `${m.role === 'user' ? 'Fan' : 'Pulse'}: ${m.content}`)
+      .map((m) => `${m.role === 'user' ? 'Fan' : 'FootyPartner'}: ${m.content}`)
       .join('\n');
 
     const prompt = `
@@ -74,7 +74,7 @@ ${contextBlock}
 CONVERSATION:
 ${history}
 
-Respond as Football Pulse to the Fan's latest message. Plain text only, no JSON.
+Respond as FootyPartner to the Fan's latest message. Plain text only, no JSON.
 `.trim();
 
     const response = await this.client.models.generateContent({

@@ -111,7 +111,7 @@ export default function HomePage() {
       <header className="sticky top-0 z-30 border-b border-[var(--hairline)] bg-[var(--bg)]/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
           <h1 className="font-display-var text-3xl tracking-wide">
-            Football<span className="gold-gradient-text">Pulse</span>
+            Footy<span className="gold-gradient-text">Partner</span>
           </h1>
           <div className="hidden sm:flex flex-1 max-w-xs">
             <input
@@ -164,7 +164,7 @@ export default function HomePage() {
 
       <main className="mx-auto max-w-5xl px-4 py-6">
         <p className="mb-6 text-sm text-[var(--muted)]">
-          Live matches get the full Pulse experience — AI summaries, odds, and chat. Tap any match to
+          Live matches get the full FootyPartner experience — AI summaries, odds, and chat. Tap any match to
           explore scores and events.
         </p>
 
@@ -237,7 +237,7 @@ function MatchCard({ fixture }: { fixture: BoardFixture }) {
         <div className="flex items-center gap-3">
           {fixture.isPulse && (
             <span className="rounded-full bg-[var(--gold-dim)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--gold)]">
-              Pulse
+              Live
             </span>
           )}
           {statusBadge()}

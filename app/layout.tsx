@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Football Pulse Server',
-  description: 'Server-side API for the Football Pulse TxLINE integration.',
+  title: 'FootyPartner',
+  description: 'Live World Cup match companion powered by TxLINE.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -15,7 +15,7 @@ Liveness check. Useful for load balancers and deploy smoke tests.
 ```json
 {
   "status": "ok",
-  "service": "football-pulse-server",
+  "service": "footypartner-server",
   "liveHub": {
     "channels": 2,
     "subscribers": 47

@@ -1,6 +1,6 @@
 # Scalability
 
-Football Pulse has no login. Every visitor shares one TxLINE subscription and one Solana wallet on the server. That's fine for a demo, but it means **our server is the bottleneck** — not per-user quotas on TxLINE.
+FootyPartner has no login. Every visitor shares one TxLINE subscription and one Solana wallet on the server. That's fine for a demo, but it means **our server is the bottleneck** — not per-user quotas on TxLINE.
 
 We added three layers of protection: caching, fan-out, and rate limiting.
 

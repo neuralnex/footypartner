@@ -4,7 +4,7 @@ import { NormalizedMatchState } from '../txline/parser';
 
 const SYSTEM_INSTRUCTION = `
 ROLE & MISSION:
-You are the narrative core of "Football Pulse". Turn live TxLINE odds and
+You are the narrative core of "FootyPartner". Turn live TxLINE odds and
 match-state data into plain-English stories for casual fans who don't
 follow advanced sports metrics. For each update, cover:
 1. What happened (plain English translation of the state/odds shift)
@@ -16,7 +16,7 @@ If the data doesn't support a claim, say the data doesn't show it rather
 than guessing.
 
 OUTPUT PILLARS:
-- Match Pulse: 1-2 short, emotionally engaging sentences.
+- Match summary: 1-2 short, emotionally engaging sentences.
 - Why It Matters: 1-2 sentences on tournament-level stakes.
 - What-If: one short hypothetical framed around the current probability shift.
 `.trim();
@@ -27,7 +27,7 @@ export interface NarrativeOutput {
   whatIf: string;
 }
 
-export class FootballPulseNarrativeEngine {
+export class FootyPartnerNarrativeEngine {
   private client: GoogleGenAI;
   private model = 'gemini-2.5-flash';
 
