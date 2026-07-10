@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   BOARD_TIMEZONE,
   getEpochDay,
@@ -46,7 +46,8 @@ export default function HomePage() {
   const [fixtures, setFixtures] = useState<BoardFixture[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-
+  const dateTabsRef = useRef<HTMLDivElement | null>(null);
+  const dateButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   useEffect(() => {
     const current = getEpochDay(new Date());
     setToday(current);
@@ -98,6 +99,22 @@ export default function HomePage() {
     };
   }, [selectedDay]);
 
+  useEffect(() => {
+    if (today === null) return;
+
+    const tabList = dateTabsRef.current;
+    const activeTab = dateButtonRefs.current.get(selectedDay);
+    if (!tabList || !activeTab) return;
+
+    const nextLeft =
+      activeTab.offsetLeft - tabList.clientWidth / 2 + activeTab.clientWidth / 2;
+
+    tabList.scrollTo({
+      left: Math.max(0, nextLeft),
+      behavior: 'smooth',
+    });
+  }, [selectedDay, today]);
+
   const filtered = fixtures.filter((f) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -109,7 +126,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[var(--bg)]">
       <header className="sticky top-0 z-30 border-b border-[var(--hairline)] bg-[var(--bg)]/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4">
           <h1 className="font-display-var text-3xl tracking-wide">
             Footy<span className="gold-gradient-text">Partner</span>
           </h1>
@@ -129,10 +146,20 @@ export default function HomePage() {
           )}
         </div>
 
-        <div className="mx-auto flex max-w-5xl items-center gap-2 overflow-x-auto px-4 pb-3">
+        <div
+          ref={dateTabsRef}
+          className="no-scrollbar mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 pb-3"
+        >
           {tournamentDays.map((day) => (
             <button
               key={day}
+              ref={(node) => {
+                if (node) {
+                  dateButtonRefs.current.set(day, node);
+                } else {
+                  dateButtonRefs.current.delete(day);
+                }
+              }}
               onClick={() => setSelectedDay(day)}
               className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition ${
                 selectedDay === day
@@ -162,33 +189,106 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-6">
-        <p className="mb-6 text-sm text-[var(--muted)]">
-          Live matches get the full FootyPartner experience — AI summaries, odds, and chat. Tap any match to
-          explore scores and events.
-        </p>
+      <main className="mx-auto max-w-7xl px-4 py-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr_280px]">
+          <aside className="order-2 lg:order-1">
+            <TournamentOverview />
+          </aside>
 
-        {loading && (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="match-card h-28 animate-pulse bg-[var(--surface)]" />
-            ))}
-          </div>
-        )}
+          <section className="order-1 lg:order-2">
+            <p className="mb-6 text-sm text-[var(--muted)]">
+              Live matches get the full FootyPartner experience — AI summaries, odds, and chat. Tap any match to
+              explore scores and events.
+            </p>
 
-        {!loading && filtered.length === 0 && (
-          <div className="match-card p-10 text-center">
-            <p className="text-[var(--muted)]">No World Cup fixtures for this day.</p>
-          </div>
-        )}
+            {loading && (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="match-card h-40 animate-pulse bg-[var(--surface)]" />
+                ))}
+              </div>
+            )}
 
-        <div className="space-y-3">
-          {!loading &&
-            filtered.map((fixture) => (
-              <MatchCard key={fixture.FixtureId} fixture={fixture} />
-            ))}
+            {!loading && filtered.length === 0 && (
+              <div className="match-card p-10 text-center">
+                <p className="text-[var(--muted)]">No World Cup fixtures for this day.</p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {!loading &&
+                filtered.map((fixture) => (
+                  <MatchCard key={fixture.FixtureId} fixture={fixture} />
+                ))}
+            </div>
+          </section>
+
+          <aside className="order-3">
+            <TopScorers />
+          </aside>
         </div>
       </main>
+    </div>
+  );
+}
+
+const TOURNAMENT_STATS = [
+  { label: 'Total Goals', value: '172' },
+  { label: 'Total Matches', value: '48' },
+  { label: 'Yellow Cards', value: '210' },
+  { label: 'Red Cards', value: '8' },
+  { label: 'Avg. Goals / Match', value: '3.58' },
+];
+
+function TournamentOverview() {
+  return (
+    <div className="match-card p-5">
+      <h2 className="mb-4 font-heading-var text-sm font-bold uppercase tracking-wider text-[var(--floodlight)]">
+        Tournament Overview
+      </h2>
+      <div className="space-y-3">
+        {TOURNAMENT_STATS.map((stat) => (
+          <div key={stat.label} className="stat-tile flex items-center justify-between">
+            <span className="text-sm text-[var(--muted)]">{stat.label}</span>
+            <span className="font-display-var text-2xl font-semibold text-[var(--floodlight)]">
+              {stat.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const TOP_SCORERS = [
+  { name: 'Kylian Mbappé', country: 'FRA', goals: 10 },
+  { name: 'Álvaro Morata', country: 'ESP', goals: 8 },
+  { name: 'Lionel Messi', country: 'ARG', goals: 7 },
+  { name: 'J. Bellingham', country: 'ENG', goals: 6 },
+  { name: 'R. Lewandowski', country: 'POL', goals: 6 },
+];
+
+function TopScorers() {
+  return (
+    <div className="match-card p-5">
+      <h2 className="mb-4 font-heading-var text-sm font-bold uppercase tracking-wider text-[var(--floodlight)]">
+        Top Scorers
+      </h2>
+      <div className="space-y-3">
+        {TOP_SCORERS.map((scorer, i) => (
+          <div key={scorer.name} className="flex items-center justify-between">
+            <div>
+              <p className="font-heading-var text-sm font-semibold text-[var(--floodlight)]">
+                {i + 1}. {scorer.name}
+              </p>
+              <p className="text-xs text-[var(--muted)]">{scorer.country}</p>
+            </div>
+            <span className="font-display-var text-xl font-semibold text-[var(--gold)]">
+              {scorer.goals}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -217,7 +317,7 @@ function MatchCard({ fixture }: { fixture: BoardFixture }) {
   const scoreDisplay = () => {
     if (fixture.scoreHome != null && fixture.scoreAway != null) {
       return (
-        <span className="font-display-var text-4xl font-semibold tracking-wider text-[var(--floodlight)]">
+        <span className="font-display-var text-5xl font-semibold tracking-wider text-[var(--floodlight)] sm:text-6xl">
           {fixture.scoreHome} <span className="text-[var(--muted)]">-</span> {fixture.scoreAway}
         </span>
       );
@@ -228,9 +328,9 @@ function MatchCard({ fixture }: { fixture: BoardFixture }) {
   return (
     <a
       href={href}
-      className={`match-card block p-5 ${fixture.isPulse ? 'match-card-live' : ''}`}
+      className={`match-card block p-8 ${fixture.isPulse ? 'match-card-live' : ''}`}
     >
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-5 flex items-center justify-between">
         <span className="text-xs uppercase tracking-wider text-[var(--muted)]">
           {fixture.Competition}
         </span>
@@ -244,28 +344,28 @@ function MatchCard({ fixture }: { fixture: BoardFixture }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-        <p className="truncate text-right font-heading-var text-base font-semibold sm:text-lg">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-6">
+        <p className="truncate text-right font-heading-var text-xl font-semibold sm:text-2xl">
           {fixture.homeTeam}
         </p>
         {scoreDisplay()}
-        <p className="truncate font-heading-var text-base font-semibold sm:text-lg">
+        <p className="truncate font-heading-var text-xl font-semibold sm:text-2xl">
           {fixture.awayTeam}
         </p>
       </div>
 
       {fixture.status === 'finished' && (
-        <p className="mt-3 text-center text-xs text-[var(--muted)]">
+        <p className="mt-4 text-center text-xs text-[var(--muted)]">
           {fixture.gameStateLabel} · tap to view match archive
         </p>
       )}
       {fixture.status === 'unavailable' && (
-        <p className="mt-3 text-center text-xs text-[var(--muted)]">
+        <p className="mt-4 text-center text-xs text-[var(--muted)]">
           Listed by TxLINE with no score feed — match may not have been played
         </p>
       )}
       {fixture.status === 'upcoming' && (
-        <p className="mt-3 text-center text-xs text-[var(--muted)]">Kickoff {formatKickoff(fixture.StartTime)}</p>
+        <p className="mt-4 text-center text-xs text-[var(--muted)]">Kickoff {formatKickoff(fixture.StartTime)}</p>
       )}
     </a>
   );

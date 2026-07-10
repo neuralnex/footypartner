@@ -63,6 +63,15 @@ button {
   .font-heading-var {
     font-family: 'Montserrat', system-ui, sans-serif;
   }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer components {
@@ -93,6 +102,13 @@ button {
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+
+  .stat-tile {
+    background: var(--surface-raised);
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
   }
 }
 
