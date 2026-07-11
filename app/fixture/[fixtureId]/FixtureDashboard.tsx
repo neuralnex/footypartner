@@ -4,10 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import {
   describeScoreEvent,
   extractLineups,
-  formatGameState,
   formatMatchEndLabel,
   formatMatchMinute,
-  isSoccerLive,
+  type MatchScoreline,
   scoreFromSnapshot,
 } from '@/lib/txline/gameState';
 import type { ScoreSnapshot } from '@/lib/txline/scores';
@@ -54,17 +53,21 @@ export default function FixtureDashboard({
   fixtureId,
   homeTeam,
   awayTeam,
+  startTimeMs: initialStartTimeMs = 0,
   isPulse: initialPulse = false,
 }: {
   fixtureId: string;
   homeTeam: string;
   awayTeam: string;
+  startTimeMs?: number;
   isPulse?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>(initialPulse ? 'summary' : 'events');
   const [history, setHistory] = useState<ProbabilityPoint[]>([]);
-  const [gameState, setGameState] = useState('CONNECTING');
-  const [matchMinute, setMatchMinute] = useState('—');
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [matchStatus, setMatchStatus] = useState<string>('');
+  const [gameState, setGameState] = useState('');
+  const [matchMinute, setMatchMinute] = useState('');
   const [isLive, setIsLive] = useState(initialPulse);
   const [isPulse, setIsPulse] = useState(initialPulse);
   const [oddsBookmaker, setOddsBookmaker] = useState<string | null>(null);
@@ -72,7 +75,7 @@ export default function FixtureDashboard({
   const [latestProbs, setLatestProbs] = useState<{ home: number; draw: number; away: number } | null>(null);
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [scoreEvents, setScoreEvents] = useState<ScoreEvent[]>([]);
-  const [currentScore, setCurrentScore] = useState(scoreFromSnapshot(null));
+  const [currentScore, setCurrentScore] = useState<MatchScoreline | null>(null);
   const [matchStats, setMatchStats] = useState<{
     possession?: number;
     possessionType?: string;
@@ -82,6 +85,7 @@ export default function FixtureDashboard({
     home: ReturnType<typeof extractLineups>['home'];
     away: ReturnType<typeof extractLineups>['away'];
   }>({ home: [], away: [] });
+  const [startTimeMs, setStartTimeMs] = useState(initialStartTimeMs);
   const [connection, setConnection] = useState<'connecting' | 'live' | 'error'>('connecting');
   const [devnetNote, setDevnetNote] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -100,10 +104,10 @@ export default function FixtureDashboard({
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const applyLatestScore = (latest: ScoreSnapshot, history = historyRef.current) => {
-    setCurrentScore(scoreFromSnapshot(latest));
+    const score = scoreFromSnapshot(latest);
+    setCurrentScore(score);
     setGameState(formatMatchEndLabel(latest, history));
     setMatchMinute(formatMatchMinute(latest, history));
-    setIsLive(isSoccerLive(latest.gameState));
 
     if (latest.stats || latest.possession !== undefined) {
       setMatchStats({
@@ -147,22 +151,31 @@ export default function FixtureDashboard({
   useEffect(() => {
     const fetchInitial = async () => {
       try {
-        const res = await fetch(`/api/fixtures/${fixtureId}/match-data?home=${encodeURIComponent(homeTeam)}&away=${encodeURIComponent(awayTeam)}`);
-        if (!res.ok) return;
+        const liveHint = initialPulse ? '&streamOnly=true' : '';
+        const res = await fetch(
+          `/api/fixtures/${fixtureId}/match-data?home=${encodeURIComponent(homeTeam)}&away=${encodeURIComponent(awayTeam)}${liveHint}`
+        );
+        if (!res.ok) {
+          setDataLoaded(true);
+          return;
+        }
 
         const data = await res.json();
-        const live = data.status === 'live';
+        const live = Boolean(data.isLive ?? data.status === 'live');
         const history = Array.isArray(data.history) ? data.history : [];
-        historyRef.current = history;
+        if (history.length > 0) historyRef.current = history;
+        if (typeof data.startTimeMs === 'number') setStartTimeMs(data.startTimeMs);
+        setMatchStatus(data.status ?? '');
 
         if (data.latest) {
-          applyLatestScore(data.latest as ScoreSnapshot, history);
-          setIsLive(live);
-          setIsPulse(live);
+          applyLatestScore(data.latest as ScoreSnapshot, historyRef.current);
         } else if (data.status === 'unavailable') {
           setGameState('No coverage');
-          setMatchMinute('—');
         }
+
+        setIsLive(live);
+        setIsPulse(live || initialPulse);
+        setDataLoaded(true);
 
         history.forEach((row: ScoreSnapshot) => pushScoreEvent(row));
 
@@ -177,38 +190,62 @@ export default function FixtureDashboard({
         }
       } catch (err) {
         console.warn('[dashboard] initial load failed:', err);
+        setDataLoaded(true);
       }
     };
 
     fetchInitial();
-  }, [fixtureId, homeTeam, awayTeam]);
+  }, [fixtureId, homeTeam, awayTeam, initialPulse]);
 
   useEffect(() => {
-    if (!isPulse) {
-      setConnection('live');
-      return;
-    }
-
+    setConnection('connecting');
+    const startParam = startTimeMs > 0 ? `&startTime=${startTimeMs}` : '';
     const url = `/api/fixtures/${fixtureId}/stream?home=${encodeURIComponent(
       homeTeam
-    )}&away=${encodeURIComponent(awayTeam)}`;
+    )}&away=${encodeURIComponent(awayTeam)}${startParam}`;
     const source = new EventSource(url);
 
     source.addEventListener('open', () => setConnection('live'));
 
     source.addEventListener('meta', (event) => {
       const data = JSON.parse((event as MessageEvent).data);
-      if (data.devnetDelaySec) {
+      if (data.devnetDelaySec && data.devnetDelaySec > 0) {
         setDevnetNote(`Devnet feed · AI summaries refresh ~every ${data.devnetDelaySec}s`);
       }
+    });
+
+    source.addEventListener('snapshot', (event) => {
+      const rows = JSON.parse((event as MessageEvent).data) as ScoreSnapshot[];
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      historyRef.current = rows;
+      const latest = rows[rows.length - 1];
+      if (latest) {
+        applyLatestScore(latest, rows);
+        rows.forEach((row) => pushScoreEvent(row));
+      }
+      setDataLoaded(true);
+    });
+
+    source.addEventListener('stream', (event) => {
+      const data = JSON.parse((event as MessageEvent).data);
+      if (data.status === 'connected') setConnection('live');
     });
 
     source.addEventListener('odds', (event) => {
       setConnection('live');
       const data = JSON.parse((event as MessageEvent).data);
-      setGameState(formatGameState(data.gameState));
-      setIsLive(Boolean(data.isLive));
-      setIsPulse(Boolean(data.isLive));
+      if (data.gameState) {
+        const prev = historyRef.current[historyRef.current.length - 1];
+        const merged = prev
+          ? { ...prev, gameState: data.gameState }
+          : ({ gameState: data.gameState } as ScoreSnapshot);
+        setGameState(formatMatchEndLabel(merged, historyRef.current));
+        setMatchMinute(formatMatchMinute(merged, historyRef.current));
+      }
+      if (data.isLive) {
+        setIsLive(true);
+        setIsPulse(true);
+      }
       if (data.bookmaker) setOddsBookmaker(data.bookmaker);
       if (data.markets) setOddsMarkets(data.markets);
       if (data.probabilities) {
@@ -236,8 +273,15 @@ export default function FixtureDashboard({
       const data = JSON.parse((event as MessageEvent).data);
       const latest = data.latest as ScoreSnapshot;
       if (!latest) return;
-      applyLatestScore(latest);
+      if (!historyRef.current.some((row) => row.seq === latest.seq)) {
+        historyRef.current = [...historyRef.current, latest].sort((a, b) => a.seq - b.seq);
+      }
+      applyLatestScore(latest, historyRef.current);
       pushScoreEvent(latest);
+      if (data.isLive) {
+        setIsLive(true);
+        setIsPulse(true);
+      }
     });
 
     source.addEventListener('narrative', (event) => {
@@ -262,7 +306,7 @@ export default function FixtureDashboard({
     source.addEventListener('error', () => setConnection('error'));
 
     return () => source.close();
-  }, [fixtureId, homeTeam, awayTeam, isPulse]);
+  }, [fixtureId, homeTeam, awayTeam, startTimeMs]);
 
   const sendChat = async () => {
     const text = chatInput.trim();
@@ -321,39 +365,58 @@ export default function FixtureDashboard({
                 </span>
               </div>
             ) : (
-              <span className="text-sm text-[var(--muted)]">{gameState}</span>
+              <span className="text-sm text-[var(--muted)]">{gameState || 'Loading…'}</span>
             )}
-            <p className="mt-1 text-sm text-[var(--muted)]">{isPulse ? gameState : 'Final / archive'}</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {isPulse ? gameState : dataLoaded ? 'Match archive' : 'Loading…'}
+            </p>
           </div>
         </header>
 
         <section className={`match-card mb-4 p-5 ${isPulse ? 'match-card-live' : ''}`}>
+          {!dataLoaded ? (
+            <div className="animate-pulse space-y-4 py-6">
+              <div className="mx-auto h-12 w-32 rounded bg-[var(--surface)]" />
+              <div className="mx-auto h-4 w-48 rounded bg-[var(--surface)]" />
+            </div>
+          ) : (
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-center">
             <div>
               <p className="truncate text-sm text-[var(--muted)]">{homeTeam}</p>
-              <p className="font-display-var text-5xl text-[var(--floodlight)]">{currentScore.home}</p>
+              <p className="font-display-var text-5xl text-[var(--floodlight)]">
+                {currentScore ? currentScore.home : '–'}
+              </p>
+              {currentScore && (
               <p className="mt-2 text-xs text-[var(--muted)]">
                 🟨 {currentScore.homeYellows} · 🟥 {currentScore.homeReds} · 🚩 {currentScore.homeCorners}
               </p>
+              )}
             </div>
             <div className="px-2">
               {isPulse ? (
                 <p className="pulse-live inline-flex items-center gap-2 font-display-var text-3xl text-[var(--gold)]">
                   <span className="h-2 w-2 rounded-full bg-[var(--pulse)]" />
-                  {matchMinute}
+                  {matchMinute || 'Live'}
                 </p>
               ) : (
-                <p className="font-display-var text-2xl text-[var(--muted)]">{matchMinute}</p>
+                <p className="font-display-var text-2xl text-[var(--muted)]">
+                  {matchMinute || (matchStatus === 'upcoming' ? 'Soon' : '')}
+                </p>
               )}
             </div>
             <div>
               <p className="truncate text-sm text-[var(--muted)]">{awayTeam}</p>
-              <p className="font-display-var text-5xl text-[var(--floodlight)]">{currentScore.away}</p>
+              <p className="font-display-var text-5xl text-[var(--floodlight)]">
+                {currentScore ? currentScore.away : '–'}
+              </p>
+              {currentScore && (
               <p className="mt-2 text-xs text-[var(--muted)]">
                 🟨 {currentScore.awayYellows} · 🟥 {currentScore.awayReds} · 🚩 {currentScore.awayCorners}
               </p>
+              )}
             </div>
           </div>
+          )}
           {devnetNote && isPulse && (
             <p className="mt-4 text-center text-xs text-[var(--gold)]">{devnetNote}</p>
           )}
@@ -415,7 +478,7 @@ export default function FixtureDashboard({
               )}
               {isPulse && feed.length === 0 && (
                 <p className="text-sm text-[var(--muted)]">
-                  Waiting for the first AI summary — odds and scores update live on devnet (~60s sampling).
+                  Waiting for the first AI summary — odds and scores update live.
                 </p>
               )}
               <div className="space-y-4">

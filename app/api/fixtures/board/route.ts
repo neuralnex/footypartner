@@ -5,7 +5,7 @@ import { txlineCache } from '@/lib/infra/ttlCache';
 import { LOAD_CONFIG } from '@/lib/infra/loadConfig';
 import { mapWithConcurrency } from '@/lib/infra/concurrency';
 import { guardRequest, rateLimitResponse } from '@/lib/infra/apiGuard';
-import { boardFixtureFromResolved, resolveMatchData } from '@/lib/match/resolveMatchData';
+import { boardFixtureFromResolved, resolveMatchData, isInMatchWindow } from '@/lib/match/resolveMatchData';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +45,7 @@ async function enrichFixture(
       status: 'upcoming',
       gameState: 'NS',
       gameStateLabel: 'Not started',
-      minute: '—',
+      minute: '',
       resultLabel: null,
       scoreHome: null,
       scoreAway: null,
@@ -60,6 +60,8 @@ async function enrichFixture(
     awayTeam: away,
     participant1IsHome: fixture.Participant1IsHome,
     epochDay: epochDayNum,
+    forceRefresh: isInMatchWindow(fixture.StartTime),
+    fetchOdds: isInMatchWindow(fixture.StartTime),
   });
 
   return boardFixtureFromResolved(
@@ -120,7 +122,9 @@ export async function GET(request: NextRequest) {
       (fixture) => enrichFixture(fixture, epochDayNum)
     );
 
-    enriched.sort((a, b) => {
+    const visible = enriched.filter((f) => f.status !== 'unavailable');
+
+    visible.sort((a, b) => {
       const rank = (s: FixtureStatus) =>
       s === 'live' ? 0 : s === 'upcoming' ? 1 : s === 'unavailable' ? 3 : 2;
       const statusDiff = rank(a.status) - rank(b.status);
@@ -128,10 +132,10 @@ export async function GET(request: NextRequest) {
       return a.StartTime - b.StartTime;
     });
 
-    const ttlMs = boardCacheTtl(epochDayNum, enriched);
-    txlineCache.set(cacheKey, enriched, ttlMs);
+    const ttlMs = boardCacheTtl(epochDayNum, visible);
+    txlineCache.set(cacheKey, visible, ttlMs);
 
-    return NextResponse.json(enriched, {
+    return NextResponse.json(visible, {
       headers: {
         'Cache-Control': `public, s-maxage=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=60`,
         'X-Cache': 'MISS',

@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import type { NormalizedMatchState } from '../txline/parser';
 import type { ScoreSnapshot } from '../txline/scores';
-import { formatGameState, formatMatchMinute, scoreFromSnapshot } from '../txline/gameState';
+import { formatMatchEndLabel, formatMatchMinute, scoreFromSnapshot } from '../txline/gameState';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -39,7 +39,11 @@ export class FootyPartnerChatEngine {
   private buildContextBlock(ctx: MatchChatContext): string {
     const score = scoreFromSnapshot(ctx.latestScore);
     const minute = formatMatchMinute(ctx.latestScore);
-    const state = formatGameState(ctx.latestScore?.gameState);
+    const state = formatMatchEndLabel(ctx.latestScore);
+
+    const scoreLine = score
+      ? `Score: ${ctx.homeTeam} ${score.home} - ${score.away} ${ctx.awayTeam}`
+      : 'Score: not available yet';
 
     const probs = ctx.odds?.probabilities
       ? `Win chance — ${ctx.homeTeam} ${ctx.odds.probabilities.homeWin}%, Draw ${ctx.odds.probabilities.draw}%, ${ctx.awayTeam} ${ctx.odds.probabilities.awayWin}%`
@@ -53,8 +57,8 @@ export class FootyPartnerChatEngine {
     return `
 Match: ${ctx.homeTeam} vs ${ctx.awayTeam}
 Fixture ID: ${ctx.fixtureId}
-Score: ${ctx.homeTeam} ${score.home} - ${score.away} ${ctx.awayTeam}
-Minute / phase: ${minute} (${state})
+${scoreLine}
+Minute / phase: ${minute || 'pending'}${state ? ` (${state})` : ''}
 ${probs}
 ${events}
 `.trim();

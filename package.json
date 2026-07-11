@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "backfill:archives": "npx tsx scripts/backfill-archives.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",

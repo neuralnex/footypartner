@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FootyPartnerChatEngine, type ChatMessage } from '@/lib/ai/chatEngine';
-import { getScoreSnapshot } from '@/lib/txline/scores';
 import { describeScoreEvent } from '@/lib/txline/gameState';
-import { getOddsSnapshot, getOddsUpdates } from '@/lib/txline/odds';
-import { TxLineDataParser } from '@/lib/txline/parser';
+import { resolveMatchData } from '@/lib/match/resolveMatchData';
+import { getFixtureById } from '@/lib/txline/fixtures';
+import { getEpochDay } from '@/lib/txline/dates';
 import { guardRequest, rateLimitResponse } from '@/lib/infra/apiGuard';
 
 export const dynamic = 'force-dynamic';
@@ -35,49 +35,45 @@ export async function POST(
   }
 
   const messages = body.messages ?? [];
-  const homeTeam = body.homeTeam ?? 'Home';
-  const awayTeam = body.awayTeam ?? 'Away';
+  let homeTeam = body.homeTeam ?? '';
+  let awayTeam = body.awayTeam ?? '';
 
   if (messages.length === 0 || messages[messages.length - 1]?.role !== 'user') {
     return NextResponse.json({ error: 'Last message must be from user' }, { status: 400 });
   }
 
   try {
-    const snapshot = await getScoreSnapshot(fixtureIdNum);
-    const latestScore =
-      Array.isArray(snapshot) && snapshot.length > 0 ? snapshot[snapshot.length - 1] : null;
-
-    let odds = null;
-    try {
-      const payloads = await getOddsSnapshot(fixtureIdNum);
-      if (payloads?.length) {
-        odds = TxLineDataParser.parseOddsPayloads(payloads);
-      }
-    } catch {
-      try {
-        const payloads = await getOddsUpdates(fixtureIdNum);
-        if (payloads?.length) {
-          odds = TxLineDataParser.parseOddsPayloads(payloads);
-        }
-      } catch {
-
-      }
+    const fixture = await getFixtureById(fixtureIdNum);
+    if (!fixture) {
+      return NextResponse.json({ error: 'Fixture not found' }, { status: 404 });
     }
 
-    const recentEvents = Array.isArray(snapshot)
-      ? snapshot
-          .slice(-8)
-          .map((s) => describeScoreEvent(s))
-          .filter(Boolean)
-      : [];
+    const startTimeMs = fixture.StartTime;
+    homeTeam = fixture.Participant1IsHome ? fixture.Participant1 : fixture.Participant2;
+    awayTeam = fixture.Participant1IsHome ? fixture.Participant2 : fixture.Participant1;
+
+    const resolved = await resolveMatchData(fixtureIdNum, {
+      startTimeMs,
+      competition: fixture?.Competition ?? 'World Cup',
+      homeTeam,
+      awayTeam,
+      participant1IsHome: fixture?.Participant1IsHome ?? true,
+      epochDay: startTimeMs ? getEpochDay(new Date(startTimeMs)) : undefined,
+      fetchOdds: true,
+    });
+
+    const recentEvents = resolved.history
+      .slice(-12)
+      .map((s) => describeScoreEvent(s))
+      .filter(Boolean);
 
     const engine = new FootyPartnerChatEngine();
     const reply = await engine.reply(messages, {
       fixtureId: fixtureIdNum,
       homeTeam,
       awayTeam,
-      latestScore,
-      odds,
+      latestScore: resolved.latest,
+      odds: resolved.odds,
       recentEvents,
     });
 

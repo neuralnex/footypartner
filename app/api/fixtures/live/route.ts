@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFixtureSnapshot } from '@/lib/txline/fixtures';
 import { getScoreSnapshot } from '@/lib/txline/scores';
-import { isSoccerLive, scoreFromSnapshot } from '@/lib/txline/gameState';
+import { inferMatchIsLive, scoreFromSnapshot } from '@/lib/txline/gameState';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
           const scores = await getScoreSnapshot(fixture.FixtureId);
           const latest =
             Array.isArray(scores) && scores.length > 0 ? scores[scores.length - 1] : null;
-          const live = isSoccerLive(latest?.gameState);
+          const live = inferMatchIsLive(latest, Array.isArray(scores) ? scores : []);
           if (!live) return null;
 
           const home = fixture.Participant1IsHome ? fixture.Participant1 : fixture.Participant2;
@@ -48,10 +48,10 @@ export async function GET(request: NextRequest) {
             ...fixture,
             homeTeam: home,
             awayTeam: away,
-            gameState: latest?.gameState ?? 'LIVE',
+            gameState: latest?.gameState ?? '',
             minute: latest?.dataSoccer?.Minutes ?? null,
-            scoreHome: score.home,
-            scoreAway: score.away,
+            scoreHome: score?.home ?? null,
+            scoreAway: score?.away ?? null,
           };
         } catch {
           return null;

@@ -119,13 +119,40 @@ export async function upsertMatchData(input: MatchDataUpsertInput): Promise<void
       input.fixtureId,
       input.status,
       input.latest?.gameState ?? null,
-      input.latest ? score.home : null,
-      input.latest ? score.away : null,
+      score ? score.home : null,
+      score ? score.away : null,
       input.latest ? JSON.stringify(input.latest) : null,
       JSON.stringify(history),
       input.odds ? JSON.stringify(input.odds) : null,
     ]
   );
+}
+
+export async function getStoredFixture(fixtureId: number): Promise<StoredFixtureRow | null> {
+  if (!(await ensureDatabase())) return null;
+  const pool = getPool();
+  if (!pool) return null;
+
+  const result = await pool.query(
+    `SELECT fixture_id, competition, start_time, home_team, away_team,
+            participant1_is_home, epoch_day
+     FROM fixtures
+     WHERE fixture_id = $1`,
+    [fixtureId]
+  );
+
+  const row = result.rows[0];
+  if (!row) return null;
+
+  return {
+    fixture_id: String(row.fixture_id),
+    competition: row.competition,
+    start_time: String(row.start_time),
+    home_team: row.home_team,
+    away_team: row.away_team,
+    participant1_is_home: row.participant1_is_home,
+    epoch_day: row.epoch_day,
+  };
 }
 
 export async function getMatchData(fixtureId: number): Promise<StoredMatchDataRow | null> {

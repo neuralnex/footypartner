@@ -42,4 +42,7 @@ export const LOAD_CONFIG = {
   boardConcurrency: envInt('BOARD_SCORE_FETCH_CONCURRENCY', 4),
 
   cacheMaxEntries: envInt('CACHE_MAX_ENTRIES', 2_000),
+
+  /** When false (default), live data flows TxLINE → SSE only; DB is not written on every tick. */
+  archiveToDb: process.env.ARCHIVE_TO_DB === 'true',
 } as const;

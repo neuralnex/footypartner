@@ -5,6 +5,7 @@ import { withFreshSession } from '@/lib/txline/singleton';
 import { TxLineDataParser, RawOddsPayload, NormalizedMatchState } from '@/lib/txline/parser';
 import { apiBaseUrl } from '@/lib/txline/config';
 import { FootyPartnerNarrativeEngine } from '@/lib/ai/narrativeEngine';
+import { getFixtureById } from '@/lib/txline/fixtures';
 
 export async function GET(
   request: NextRequest,
@@ -12,13 +13,18 @@ export async function GET(
 ) {
   const { fixtureId } = await params;
   const fixtureIdNum = Number(fixtureId);
-  const { searchParams } = new URL(request.url);
-  const homeTeam = searchParams.get('home') ?? 'Home';
-  const awayTeam = searchParams.get('away') ?? 'Away';
 
   if (!Number.isFinite(fixtureIdNum)) {
     return NextResponse.json({ error: 'fixtureId must be numeric' }, { status: 400 });
   }
+
+  const fixture = await getFixtureById(fixtureIdNum);
+  if (!fixture) {
+    return NextResponse.json({ error: 'Fixture not found' }, { status: 404 });
+  }
+
+  const homeTeam = fixture.Participant1IsHome ? fixture.Participant1 : fixture.Participant2;
+  const awayTeam = fixture.Participant1IsHome ? fixture.Participant2 : fixture.Participant1;
 
   try {
     const normalized: NormalizedMatchState = await withFreshSession(async (headers) => {

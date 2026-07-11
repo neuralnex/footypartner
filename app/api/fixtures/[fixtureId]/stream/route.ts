@@ -19,13 +19,17 @@ export async function GET(
 
   const { fixtureId } = await params;
   const fixtureIdNum = Number(fixtureId);
+  const { searchParams } = new URL(request.url);
+  const homeTeam = searchParams.get('home') ?? undefined;
+  const awayTeam = searchParams.get('away') ?? undefined;
+  const startTimeMs = Number(searchParams.get('startTime') ?? '0') || undefined;
 
   if (!Number.isFinite(fixtureIdNum)) {
     releaseStreamSlot(clientIp);
     return new Response('fixtureId must be numeric', { status: 400 });
   }
 
-  const hub = getLiveHub(fixtureIdNum);
+  const hub = getLiveHub(fixtureIdNum, { homeTeam, awayTeam, startTimeMs });
   if (!hub) {
     releaseStreamSlot(clientIp);
     return new Response('Live capacity reached. Try again shortly.', { status: 503 });

@@ -4,6 +4,7 @@ import { fixtureStartsOnEpochDay, getEpochDay } from '@/lib/txline/dates';
 import { txlineCache } from '@/lib/infra/ttlCache';
 import { LOAD_CONFIG } from '@/lib/infra/loadConfig';
 import { txlineHttp } from '@/lib/txline/http';
+import { getStoredFixture } from '@/lib/db/fixtureStore';
 
 export interface FixtureSnapshot {
   Ts: number;
@@ -47,9 +48,53 @@ async function fetchFixtureSnapshot(query: FixtureSnapshotQuery = {}) {
   });
 }
 
-export async function getFixtureById(fixtureId: number) {
+function storedRowToFixtureSnapshot(row: {
+  fixture_id: string;
+  competition: string;
+  start_time: string;
+  home_team: string;
+  away_team: string;
+  participant1_is_home: boolean;
+}): FixtureSnapshot {
+  const homeId = row.participant1_is_home ? 1 : 2;
+  const awayId = row.participant1_is_home ? 2 : 1;
+  return {
+    Ts: Date.now(),
+    StartTime: Number(row.start_time),
+    Competition: row.competition,
+    CompetitionId: 0,
+    FixtureGroupId: 0,
+    Participant1Id: homeId,
+    Participant1: row.participant1_is_home ? row.home_team : row.away_team,
+    Participant2Id: awayId,
+    Participant2: row.participant1_is_home ? row.away_team : row.home_team,
+    FixtureId: Number(row.fixture_id),
+    Participant1IsHome: row.participant1_is_home,
+  };
+}
+
+export async function getFixtureById(fixtureId: number, opts?: { epochDay?: number }) {
   const fixtures = await getFixtureSnapshot();
-  return fixtures.find((fixture) => fixture.FixtureId === fixtureId) ?? null;
+  const fromSnapshot = fixtures.find((fixture) => fixture.FixtureId === fixtureId);
+  if (fromSnapshot) return fromSnapshot;
+
+  if (opts?.epochDay != null) {
+    const dayFixtures = await getWorldCupFixturesForDay(opts.epochDay);
+    const fromDay = dayFixtures.find((fixture) => fixture.FixtureId === fixtureId);
+    if (fromDay) return fromDay;
+  }
+
+  const stored = await getStoredFixture(fixtureId);
+  if (stored) {
+    if (stored.epoch_day != null) {
+      const dayFixtures = await getWorldCupFixturesForDay(stored.epoch_day);
+      const fromDay = dayFixtures.find((fixture) => fixture.FixtureId === fixtureId);
+      if (fromDay) return fromDay;
+    }
+    return storedRowToFixtureSnapshot(stored);
+  }
+
+  return null;
 }
 
 function dedupeFixtures(fixtures: FixtureSnapshot[]): FixtureSnapshot[] {

@@ -6,20 +6,28 @@ import { getOddsSnapshot, getOddsUpdates } from '@/lib/txline/odds';
 import {
   getScoreSnapshot,
   getScoreUpdates,
+  getScoreHistorical,
   getCurrentScore,
   getMatchStats,
   type ScoreSnapshot,
 } from '@/lib/txline/scores';
-import { isSoccerLive } from '@/lib/txline/gameState';
+import { inferMatchIsLive } from '@/lib/txline/gameState';
 import { readSseMessages, parseSseData } from '@/lib/txline/sse';
-import { deriveMatchStatus } from '@/lib/txline/normalizeScore';
+import { deriveMatchStatus, normalizeScoreEvent } from '@/lib/txline/normalizeScore';
 import { isDatabaseEnabled } from '@/lib/db/pool';
-import { upsertMatchData } from '@/lib/db/fixtureStore';
+import { upsertFixture, upsertMatchData } from '@/lib/db/fixtureStore';
 import { LOAD_CONFIG } from '@/lib/infra/loadConfig';
 
-const NARRATIVE_COOLDOWN_MS = Number(process.env.TXLINE_SCORE_DELAY_MS ?? '60000');
+const NARRATIVE_COOLDOWN_MS = Number(process.env.TXLINE_SCORE_DELAY_MS ?? '0');
+const NARRATIVE_MIN_INTERVAL_MS = 5_000;
 
 export type HubListener = (event: string, data: unknown) => void;
+
+export interface LiveHubContext {
+  homeTeam?: string;
+  awayTeam?: string;
+  startTimeMs?: number;
+}
 
 function narrativeFingerprint(
   normalized: NormalizedMatchState,
@@ -35,6 +43,7 @@ function narrativeFingerprint(
 
 class FixtureLiveHub {
   readonly fixtureId: number;
+  private context: LiveHubContext;
   private subscribers = new Map<string, HubListener>();
   private started = false;
   private shuttingDown = false;
@@ -55,8 +64,35 @@ class FixtureLiveHub {
   private readonly seenSeq = new Set<number>();
   private readonly seenOddsMsg = new Set<string>();
 
-  constructor(fixtureId: number) {
+  updateContext(context: LiveHubContext): void {
+    this.context = { ...this.context, ...context };
+    this.refreshLiveState();
+  }
+
+  private startTimeMs(): number {
+    return this.context.startTimeMs ?? this.latestScore?.startTime ?? 0;
+  }
+
+  private refreshLiveState(): void {
+    this.matchIsLive = inferMatchIsLive(
+      this.latestScore,
+      this.scoreHistory,
+      Boolean(this.latestOdds?.isLive)
+    );
+  }
+
+  private coerceScore(raw: unknown): ScoreSnapshot | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const row = raw as ScoreSnapshot;
+    if (typeof row.seq === 'number' && row.scoreSoccer) {
+      return row;
+    }
+    return normalizeScoreEvent(raw as Record<string, unknown>);
+  }
+
+  constructor(fixtureId: number, context: LiveHubContext = {}) {
     this.fixtureId = fixtureId;
+    this.context = context;
     try {
       this.narrativeEngine = new FootyPartnerNarrativeEngine();
     } catch {
@@ -113,7 +149,7 @@ class FixtureLiveHub {
     if (source !== 'snapshot' && source !== 'replay' && this.seenSeq.has(score.seq)) return;
     if (source !== 'replay') this.seenSeq.add(score.seq);
     this.latestScore = score;
-    this.matchIsLive = isSoccerLive(score.gameState);
+    this.refreshLiveState();
 
     this.broadcast('score', {
       source,
@@ -130,35 +166,67 @@ class FixtureLiveHub {
       }
     }
 
-    void this.persistToDatabase();
+    void this.maybePersistArchive();
+    void this.maybeNarrative();
   }
 
-  private async persistToDatabase(): Promise<void> {
-    if (!isDatabaseEnabled() || !this.latestScore) return;
+  private async maybePersistArchive(): Promise<void> {
+    if (!LOAD_CONFIG.archiveToDb || !isDatabaseEnabled() || !this.latestScore) return;
 
-    const status = deriveMatchStatus(this.latestScore, this.latestScore.startTime);
+    const finalised = this.scoreHistory.some(
+      (h) =>
+        h.action?.toLowerCase() === 'game_finalised' ||
+        h.action?.toLowerCase() === 'match_ended'
+    );
+    if (!finalised && this.matchIsLive) return;
+
+    const startTime = this.startTimeMs();
+    const status = deriveMatchStatus(
+      this.latestScore,
+      startTime,
+      this.scoreHistory,
+      Boolean(this.latestOdds?.isLive)
+    );
+
     try {
-      await upsertMatchData({
-        fixtureId: this.fixtureId,
-        status: status === 'upcoming' ? 'live' : status,
-        latest: this.latestScore,
-        history: this.scoreHistory,
-        odds: this.latestOdds,
-      });
+      if (this.context.homeTeam && this.context.awayTeam) {
+        await upsertFixture({
+          fixtureId: this.fixtureId,
+          competition: 'World Cup',
+          startTime,
+          homeTeam: this.context.homeTeam,
+          awayTeam: this.context.awayTeam,
+          participant1IsHome: true,
+        });
+      }
+
+      if (finalised || status === 'finished') {
+        await upsertMatchData({
+          fixtureId: this.fixtureId,
+          status,
+          latest: this.latestScore,
+          history: this.scoreHistory,
+          odds: this.latestOdds,
+        });
+      }
     } catch {
+      // archive write is best-effort
     }
   }
 
   private applyOdds(normalized: NormalizedMatchState, source: string): void {
     this.latestOdds = normalized;
-    this.matchIsLive = this.matchIsLive || normalized.isLive;
-    this.broadcast('odds', { ...normalized, source });
+    this.refreshLiveState();
+    this.broadcast('odds', { ...normalized, source, isLive: this.matchIsLive });
   }
 
   private async maybeNarrative(): Promise<void> {
-    if (!this.matchIsLive || !this.narrativeEngine || !this.latestOdds || !this.latestScore) return;
+    if (!this.matchIsLive || !this.narrativeEngine || !this.latestScore) return;
+    if (!this.latestOdds) return;
+
     const now = Date.now();
-    if (now - this.lastNarrativeAt < NARRATIVE_COOLDOWN_MS) return;
+    const waitMs = Math.max(NARRATIVE_COOLDOWN_MS, NARRATIVE_MIN_INTERVAL_MS);
+    if (now - this.lastNarrativeAt < waitMs) return;
 
     const matchData = {
       currentScore: getCurrentScore(this.latestScore),
@@ -170,11 +238,15 @@ class FixtureLiveHub {
     this.lastNarrativeKey = key;
     this.lastNarrativeAt = now;
 
+    const homeTeam = this.context.homeTeam;
+    const awayTeam = this.context.awayTeam;
+    if (!homeTeam || !awayTeam) return;
+
     try {
       const narrative = await this.narrativeEngine.generateNarrative(
         this.latestOdds,
-        'Home',
-        'Away',
+        homeTeam,
+        awayTeam,
         matchData
       );
       this.broadcast('narrative', narrative);
@@ -183,13 +255,18 @@ class FixtureLiveHub {
     }
   }
 
+  private shouldTrackLive(): boolean {
+    this.refreshLiveState();
+    return this.hasSubscribers();
+  }
+
   private async pollOdds(): Promise<void> {
-    if (!this.matchIsLive) return;
+    if (!this.shouldTrackLive()) return;
     try {
       const payloads = await getOddsUpdates(this.fixtureId);
       if (!payloads?.length) return;
       this.applyOdds(TxLineDataParser.parseOddsPayloads(payloads), 'poll');
-      void this.persistToDatabase();
+      void this.maybePersistArchive();
       await this.maybeNarrative();
     } catch (err) {
       this.broadcast('error', { source: 'odds', message: String(err) });
@@ -201,11 +278,9 @@ class FixtureLiveHub {
       const updates = await getScoreUpdates(this.fixtureId);
       if (!Array.isArray(updates) || updates.length === 0) return;
       for (const update of updates) {
-        if (update && typeof update.seq === 'number') {
-          this.applyScore(update as ScoreSnapshot, 'update');
-        }
+        const score = this.coerceScore(update);
+        if (score) this.applyScore(score, 'update');
       }
-      await this.maybeNarrative();
     } catch (err) {
       this.broadcast('error', { source: 'scores', message: String(err) });
     }
@@ -217,101 +292,141 @@ class FixtureLiveHub {
       if (Array.isArray(snapshot) && snapshot.length > 0) {
         this.latestSnapshot = snapshot;
         this.scoreHistory = [...snapshot];
-        for (const row of snapshot) this.applyScore(row, 'snapshot');
+        for (const row of snapshot) {
+          const score = this.coerceScore(row);
+          if (score) this.applyScore(score, 'snapshot');
+        }
         this.broadcast('snapshot', snapshot);
       }
     } catch (err) {
       this.broadcast('error', { source: 'snapshot', message: String(err) });
     }
 
+    if (this.scoreHistory.length === 0) {
+      try {
+        const historical = await getScoreHistorical(this.fixtureId);
+        if (historical.length > 0) {
+          this.scoreHistory = historical;
+          this.latestSnapshot = historical;
+          const latest = historical[historical.length - 1];
+          const score = this.coerceScore(latest);
+          if (score) {
+            this.latestScore = score;
+            this.refreshLiveState();
+          }
+          this.broadcast('snapshot', historical);
+          this.broadcast('score', {
+            source: 'historical',
+            latest: this.latestScore,
+            minute: this.latestScore?.dataSoccer?.Minutes ?? null,
+            gameState: this.latestScore?.gameState,
+            isLive: this.matchIsLive,
+          });
+        }
+      } catch (err) {
+        this.broadcast('error', { source: 'historical', message: String(err) });
+      }
+    }
+
+    this.refreshLiveState();
+
     try {
       const oddsPayloads = await getOddsSnapshot(this.fixtureId);
       if (oddsPayloads?.length) {
         this.applyOdds(TxLineDataParser.parseOddsPayloads(oddsPayloads), 'snapshot');
+        await this.maybeNarrative();
       }
     } catch {
       await this.pollOdds();
     }
 
-    if (this.matchIsLive) {
-      await this.pollScores();
-    } else {
-      this.broadcast('meta', { message: 'Match not live — archive mode. Live stream idle.' });
-    }
+    this.refreshLiveState();
+    await this.pollScores();
+  }
+
+  private hasSubscribers(): boolean {
+    return this.subscribers.size > 0;
   }
 
   private async connectScoresStream(): Promise<void> {
-    if (!this.matchIsLive || this.shuttingDown) return;
-    try {
-      this.upstreamAbort = new AbortController();
-      await withFreshSession(async (headers) => {
-        const streamUrl = `${apiBaseUrl}/scores/stream?fixtureId=${this.fixtureId}`;
-        const response = await fetch(streamUrl, {
-          headers: { ...headers, Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
-          signal: this.upstreamAbort!.signal,
-        });
+    while (!this.shuttingDown && this.hasSubscribers()) {
+      try {
+        this.upstreamAbort = new AbortController();
+        await withFreshSession(async (headers) => {
+          const streamUrl = `${apiBaseUrl}/scores/stream?fixtureId=${this.fixtureId}`;
+          const response = await fetch(streamUrl, {
+            headers: { ...headers, Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
+            signal: this.upstreamAbort!.signal,
+          });
 
-        if (!response.ok) throw new Error(`scores stream: ${response.status}`);
-        this.broadcast('stream', { channel: 'scores', status: 'connected' });
+          if (!response.ok) throw new Error(`scores stream: ${response.status}`);
+          this.broadcast('stream', { channel: 'scores', status: 'connected' });
 
-        for await (const message of readSseMessages(response)) {
-          if (this.shuttingDown) break;
-          if (message.event === 'heartbeat') continue;
-          if (!message.data) continue;
+          for await (const message of readSseMessages(response)) {
+            if (this.shuttingDown) break;
+            if (message.event === 'heartbeat') continue;
+            if (!message.data) continue;
 
-          const payload = parseSseData<ScoreSnapshot>(message.data);
-          if (payload && typeof payload === 'object' && 'seq' in payload) {
-            this.applyScore(payload, 'stream');
-            await this.maybeNarrative();
+            const payload = parseSseData<unknown>(message.data);
+            const score = this.coerceScore(payload);
+            if (score) this.applyScore(score, 'stream');
           }
+        });
+      } catch (err) {
+        if (!this.shuttingDown) {
+          this.broadcast('stream', {
+            channel: 'scores',
+            status: 'reconnecting',
+            message: String(err),
+          });
+          await new Promise((r) => setTimeout(r, 3_000));
         }
-      });
-    } catch (err) {
-      if (!this.shuttingDown) {
-        this.broadcast('stream', { channel: 'scores', status: 'reconnecting', message: String(err) });
       }
     }
   }
 
   private async connectOddsStream(): Promise<void> {
-    if (!this.matchIsLive || this.shuttingDown) return;
-    try {
-      await withFreshSession(async (headers) => {
-        const streamUrl = `${apiBaseUrl}/odds/stream?fixtureId=${this.fixtureId}`;
-        const response = await fetch(streamUrl, {
-          headers: { ...headers, Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
-          signal: this.upstreamAbort?.signal,
-        });
+    while (!this.shuttingDown && this.hasSubscribers()) {
+      try {
+        await withFreshSession(async (headers) => {
+          const streamUrl = `${apiBaseUrl}/odds/stream?fixtureId=${this.fixtureId}`;
+          const response = await fetch(streamUrl, {
+            headers: { ...headers, Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
+            signal: this.upstreamAbort?.signal,
+          });
 
-        if (!response.ok) throw new Error(`odds stream: ${response.status}`);
-        this.broadcast('stream', { channel: 'odds', status: 'connected' });
+          if (!response.ok) throw new Error(`odds stream: ${response.status}`);
+          this.broadcast('stream', { channel: 'odds', status: 'connected' });
 
-        for await (const message of readSseMessages(response)) {
-          if (this.shuttingDown) break;
-          if (message.event === 'heartbeat') continue;
-          if (!message.data) continue;
+          for await (const message of readSseMessages(response)) {
+            if (this.shuttingDown) break;
+            if (message.event === 'heartbeat') continue;
+            if (!message.data) continue;
 
-          const payload = parseSseData<RawOddsPayload>(message.data);
-          if (payload && typeof payload === 'object' && 'FixtureId' in payload) {
-            const msgKey = payload.MessageId ?? `${payload.Ts}`;
-            if (this.seenOddsMsg.has(msgKey)) continue;
-            this.seenOddsMsg.add(msgKey);
+            const payload = parseSseData<RawOddsPayload>(message.data);
+            if (payload && typeof payload === 'object' && 'FixtureId' in payload) {
+              const msgKey = payload.MessageId ?? `${payload.Ts}`;
+              if (this.seenOddsMsg.has(msgKey)) continue;
+              this.seenOddsMsg.add(msgKey);
 
-            try {
-              const batch = await getOddsUpdates(this.fixtureId);
-              if (batch?.length) {
-                this.applyOdds(TxLineDataParser.parseOddsPayloads(batch), 'stream');
+              try {
+                const batch = await getOddsUpdates(this.fixtureId);
+                if (batch?.length) {
+                  this.applyOdds(TxLineDataParser.parseOddsPayloads(batch), 'stream');
+                  await this.maybeNarrative();
+                }
+              } catch {
+                this.applyOdds(TxLineDataParser.parseOddsPayloads([payload]), 'stream-single');
                 await this.maybeNarrative();
               }
-            } catch {
-              this.applyOdds(TxLineDataParser.parseOddsPayloads([payload]), 'stream-single');
             }
           }
+        });
+      } catch (err) {
+        if (!this.shuttingDown) {
+          this.broadcast('stream', { channel: 'odds', status: 'reconnecting', message: String(err) });
+          await new Promise((r) => setTimeout(r, 3_000));
         }
-      });
-    } catch (err) {
-      if (!this.shuttingDown) {
-        this.broadcast('stream', { channel: 'odds', status: 'reconnecting', message: String(err) });
       }
     }
   }
@@ -322,14 +437,13 @@ class FixtureLiveHub {
     this.shuttingDown = false;
 
     await this.bootstrap();
+    this.refreshLiveState();
 
     this.oddsTimer = setInterval(() => void this.pollOdds(), LOAD_CONFIG.hub.oddsPollMs);
     this.scoresTimer = setInterval(() => void this.pollScores(), LOAD_CONFIG.hub.scoresPollMs);
 
-    if (this.matchIsLive) {
-      void this.connectScoresStream();
-      void this.connectOddsStream();
-    }
+    void this.connectScoresStream();
+    void this.connectOddsStream();
   }
 
   private scheduleIdleShutdown(): void {
@@ -364,14 +478,16 @@ declare global {
 const hubRegistry = globalThis.__fpLiveHubs ?? new Map<number, FixtureLiveHub>();
 if (process.env.NODE_ENV !== 'production') globalThis.__fpLiveHubs = hubRegistry;
 
-export function getLiveHub(fixtureId: number): FixtureLiveHub | null {
+export function getLiveHub(fixtureId: number, context?: LiveHubContext): FixtureLiveHub | null {
   if (hubRegistry.size >= LOAD_CONFIG.hub.maxChannels && !hubRegistry.has(fixtureId)) {
     return null;
   }
   let hub = hubRegistry.get(fixtureId);
   if (!hub) {
-    hub = new FixtureLiveHub(fixtureId);
+    hub = new FixtureLiveHub(fixtureId, context);
     hubRegistry.set(fixtureId, hub);
+  } else if (context) {
+    hub.updateContext(context);
   }
   return hub;
 }
