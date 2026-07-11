@@ -2,24 +2,17 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  BOARD_TIMEZONE,
+  DEFAULT_USER_TIMEZONE,
   getEpochDay,
   formatEpochDayLabel,
+  formatHostDayHint,
+  formatKickoff,
+  formatKickoffDual,
+  formatTimezoneShort,
+  resolveUserTimeZone,
   WC_2026_START_EPOCH_DAY,
   WC_2026_DURATION_DAYS,
 } from '@/lib/txline/dates';
-
-function formatKickoff(ts: number): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: BOARD_TIMEZONE,
-  }).formatToParts(new Date(ts));
-  const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
-  const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
-  return `${hour}:${minute}`;
-}
 
 interface BoardFixture {
   FixtureId: number;
@@ -41,6 +34,7 @@ export default function HomePage() {
     () => Array.from({ length: WC_2026_DURATION_DAYS }, (_, i) => WC_2026_START_EPOCH_DAY + i),
     []
   );
+  const [userTimeZone, setUserTimeZone] = useState(DEFAULT_USER_TIMEZONE);
   const [today, setToday] = useState<number | null>(null);
   const [selectedDay, setSelectedDay] = useState(WC_2026_START_EPOCH_DAY);
   const [fixtures, setFixtures] = useState<BoardFixture[]>([]);
@@ -49,7 +43,9 @@ export default function HomePage() {
   const dateTabsRef = useRef<HTMLDivElement | null>(null);
   const dateButtonRefs = useRef(new Map<number, HTMLButtonElement>());
   useEffect(() => {
-    const current = getEpochDay(new Date());
+    const detected = resolveUserTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    setUserTimeZone(detected);
+    const current = getEpochDay(new Date(), detected);
     setToday(current);
     if (current >= WC_2026_START_EPOCH_DAY && current < WC_2026_START_EPOCH_DAY + WC_2026_DURATION_DAYS) {
       setSelectedDay(current);
@@ -65,9 +61,10 @@ export default function HomePage() {
     const loadBoard = async (showLoading = false) => {
       if (showLoading) setLoading(true);
       try {
-        const res = await fetch(`/api/fixtures/board?epochDay=${selectedDay}`, {
-          signal: controller.signal,
-        });
+        const res = await fetch(
+          `/api/fixtures/board?epochDay=${selectedDay}&timeZone=${encodeURIComponent(userTimeZone)}`,
+          { signal: controller.signal }
+        );
         if (res.status === 429) {
           const retryAfter = Number(res.headers.get('Retry-After') || '30');
           backoffMs = Math.min(retryAfter * 1000, 120_000);
@@ -97,7 +94,7 @@ export default function HomePage() {
       controller.abort();
       if (refreshTimer) clearTimeout(refreshTimer);
     };
-  }, [selectedDay]);
+  }, [selectedDay, userTimeZone]);
 
   useEffect(() => {
     if (today === null) return;
@@ -148,8 +145,12 @@ export default function HomePage() {
 
         <div
           ref={dateTabsRef}
-          className="no-scrollbar mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto px-4 pb-3"
+          className="no-scrollbar mx-auto flex max-w-7xl flex-col gap-1 px-4 pb-3"
         >
+          <p className="text-[10px] uppercase tracking-widest text-[var(--muted)]">
+            Match days · {formatTimezoneShort(userTimeZone)} · US Eastern host kickoffs on cards
+          </p>
+          <div className="flex items-center gap-2 overflow-x-auto">
           {tournamentDays.map((day) => (
             <button
               key={day}
@@ -166,8 +167,9 @@ export default function HomePage() {
                   ? 'bg-[var(--gold)] text-[var(--bg)]'
                   : 'text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--floodlight)]'
               }`}
+              title={formatHostDayHint(day, userTimeZone) ?? undefined}
             >
-              {today === null ? '…' : formatEpochDayLabel(day, today)}
+              {today === null ? '…' : formatEpochDayLabel(day, today, userTimeZone)}
             </button>
           ))}
           <button
@@ -186,6 +188,7 @@ export default function HomePage() {
           >
             Later →
           </button>
+          </div>
         </div>
       </header>
 
@@ -218,7 +221,7 @@ export default function HomePage() {
             <div className="space-y-3">
               {!loading &&
                 filtered.map((fixture) => (
-                  <MatchCard key={fixture.FixtureId} fixture={fixture} />
+                  <MatchCard key={fixture.FixtureId} fixture={fixture} userTimeZone={userTimeZone} />
                 ))}
             </div>
           </section>
@@ -293,7 +296,7 @@ function TopScorers() {
   );
 }
 
-function MatchCard({ fixture }: { fixture: BoardFixture }) {
+function MatchCard({ fixture, userTimeZone }: { fixture: BoardFixture; userTimeZone: string }) {
   const href = `/fixture/${fixture.FixtureId}?home=${encodeURIComponent(fixture.homeTeam)}&away=${encodeURIComponent(fixture.awayTeam)}`;
 
   const statusBadge = () => {
@@ -311,7 +314,7 @@ function MatchCard({ fixture }: { fixture: BoardFixture }) {
     if (fixture.status === 'unavailable') {
       return <span className="text-sm font-medium text-[var(--muted)]">No data</span>;
     }
-    return <span className="text-sm text-[var(--muted)]">{formatKickoff(fixture.StartTime)}</span>;
+    return <span className="text-sm text-[var(--muted)]">{formatKickoff(fixture.StartTime, userTimeZone)}</span>;
   };
 
   const scoreDisplay = () => {
@@ -365,7 +368,9 @@ function MatchCard({ fixture }: { fixture: BoardFixture }) {
         </p>
       )}
       {fixture.status === 'upcoming' && (
-        <p className="mt-4 text-center text-xs text-[var(--muted)]">Kickoff {formatKickoff(fixture.StartTime)}</p>
+        <p className="mt-4 text-center text-xs text-[var(--muted)]">
+          Kickoff {formatKickoffDual(fixture.StartTime, userTimeZone)}
+        </p>
       )}
     </a>
   );

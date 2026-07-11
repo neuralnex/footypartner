@@ -9,6 +9,7 @@ import {
   type MatchScoreline,
   scoreFromSnapshot,
 } from '@/lib/txline/gameState';
+import { formatKickoffDual, DEFAULT_USER_TIMEZONE, resolveUserTimeZone } from '@/lib/txline/dates';
 import type { ScoreSnapshot } from '@/lib/txline/scores';
 
 import type { OddsMarketView } from '@/lib/txline/parser';
@@ -62,6 +63,7 @@ export default function FixtureDashboard({
   startTimeMs?: number;
   isPulse?: boolean;
 }) {
+  const [userTimeZone, setUserTimeZone] = useState(DEFAULT_USER_TIMEZONE);
   const [tab, setTab] = useState<Tab>(initialPulse ? 'summary' : 'events');
   const [history, setHistory] = useState<ProbabilityPoint[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -102,6 +104,8 @@ export default function FixtureDashboard({
   const seenSeqRef = useRef(new Set<number>());
   const historyRef = useRef<ScoreSnapshot[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const userTimeZoneRef = useRef(userTimeZone);
+  userTimeZoneRef.current = userTimeZone;
 
   const applyLatestScore = (latest: ScoreSnapshot, history = historyRef.current) => {
     const score = scoreFromSnapshot(latest);
@@ -143,6 +147,10 @@ export default function FixtureDashboard({
       ].slice(0, MAX_FEED)
     );
   };
+
+  useEffect(() => {
+    setUserTimeZone(resolveUserTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone));
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -294,7 +302,7 @@ export default function FixtureDashboard({
             time: new Date().toLocaleTimeString('en-GB', {
               hour: '2-digit',
               minute: '2-digit',
-              timeZone: 'Africa/Lagos',
+              timeZone: userTimeZoneRef.current,
             }),
             narrative,
           },
@@ -355,6 +363,9 @@ export default function FixtureDashboard({
             <h1 className="mt-1 font-display-var text-3xl sm:text-4xl tracking-wide">
               {homeTeam} <span className="text-[var(--muted)]">vs</span> {awayTeam}
             </h1>
+            {startTimeMs > 0 && (
+              <p className="mt-1 text-xs text-[var(--muted)]">Kickoff {formatKickoffDual(startTimeMs, userTimeZone)}</p>
+            )}
           </div>
           <div className="text-right">
             {isPulse ? (

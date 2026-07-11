@@ -1,6 +1,6 @@
 import { withFreshSession } from '@/lib/txline/singleton';
 import { apiBaseUrl } from '@/lib/txline/config';
-import { fixtureStartsOnEpochDay, getEpochDay } from '@/lib/txline/dates';
+import { fixtureStartsOnEpochDay, getEpochDay, getTxlineEpochDaysForUserDay, resolveUserTimeZone } from '@/lib/txline/dates';
 import { txlineCache } from '@/lib/infra/ttlCache';
 import { LOAD_CONFIG } from '@/lib/infra/loadConfig';
 import { txlineHttp } from '@/lib/txline/http';
@@ -108,24 +108,29 @@ function dedupeFixtures(fixtures: FixtureSnapshot[]): FixtureSnapshot[] {
   return [...byId.values()];
 }
 
-export async function getFixtureUpdatesForDay(epochDay: number): Promise<FixtureSnapshot[]> {
+export async function getFixtureUpdatesForDay(userEpochDay: number): Promise<FixtureSnapshot[]> {
   const today = getEpochDay(new Date());
   const ttl =
-    epochDay < today ? LOAD_CONFIG.cache.fixturesDayPast : LOAD_CONFIG.cache.fixturesDay;
-  const key = `fixtures:day-updates:${epochDay}`;
-  return txlineCache.getOrSet(key, ttl, () => fetchFixtureUpdatesForDay(epochDay));
+    userEpochDay < today ? LOAD_CONFIG.cache.fixturesDayPast : LOAD_CONFIG.cache.fixturesDay;
+  const key = `fixtures:day-updates:${userEpochDay}`;
+  return txlineCache.getOrSet(key, ttl, () => fetchFixtureUpdatesForUserDay(userEpochDay));
 }
 
-async function fetchFixtureUpdatesForDay(epochDay: number): Promise<FixtureSnapshot[]> {
+async function fetchFixtureUpdatesForUserDay(userEpochDay: number): Promise<FixtureSnapshot[]> {
+  const txlineDays = getTxlineEpochDaysForUserDay(userEpochDay);
   const hours = Array.from({ length: 24 }, (_, hour) => hour);
 
   const batches = await withFreshSession(async (headers) =>
     Promise.all(
-      hours.map((hour) =>
-        txlineHttp
-          .get<FixtureSnapshot[]>(`${apiBaseUrl}/fixtures/updates/${epochDay}/${hour}`, { headers })
-          .then((response) => response.data)
-          .catch(() => [] as FixtureSnapshot[])
+      txlineDays.flatMap((epochDay) =>
+        hours.map((hour) =>
+          txlineHttp
+            .get<FixtureSnapshot[]>(`${apiBaseUrl}/fixtures/updates/${epochDay}/${hour}`, {
+              headers,
+            })
+            .then((response) => response.data)
+            .catch(() => [] as FixtureSnapshot[])
+        )
       )
     )
   );
@@ -133,19 +138,24 @@ async function fetchFixtureUpdatesForDay(epochDay: number): Promise<FixtureSnaps
   return dedupeFixtures(batches.flat());
 }
 
-export async function getWorldCupFixturesForDay(epochDay: number): Promise<FixtureSnapshot[]> {
-  const [snapshotFixtures, historicalFixtures] = await Promise.all([
-    getFixtureSnapshot({ startEpochDay: epochDay }),
-    getFixtureUpdatesForDay(epochDay),
-  ]);
+export async function getWorldCupFixturesForDay(
+  userEpochDay: number,
+  userTimeZone?: string
+): Promise<FixtureSnapshot[]> {
+  const tz = resolveUserTimeZone(userTimeZone);
+  const txlineDays = getTxlineEpochDaysForUserDay(userEpochDay);
+  const snapshotBatches = await Promise.all(
+    txlineDays.map((day) => getFixtureSnapshot({ startEpochDay: day }))
+  );
+  const historicalFixtures = await getFixtureUpdatesForDay(userEpochDay);
 
-  const merged = dedupeFixtures([...snapshotFixtures, ...historicalFixtures]);
+  const merged = dedupeFixtures([...snapshotBatches.flat(), ...historicalFixtures]);
 
   return merged
     .filter(
       (fixture) =>
         /world cup/i.test(String(fixture.Competition || '')) &&
-        fixtureStartsOnEpochDay(fixture.StartTime, epochDay)
+        fixtureStartsOnEpochDay(fixture.StartTime, userEpochDay, tz)
     )
     .sort((a, b) => a.StartTime - b.StartTime);
 }

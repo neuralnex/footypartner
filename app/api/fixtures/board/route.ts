@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorldCupFixturesForDay } from '@/lib/txline/fixtures';
-import { getEpochDay } from '@/lib/txline/dates';
+import { getEpochDay, resolveUserTimeZone } from '@/lib/txline/dates';
 import { txlineCache } from '@/lib/infra/ttlCache';
 import { LOAD_CONFIG } from '@/lib/infra/loadConfig';
 import { mapWithConcurrency } from '@/lib/infra/concurrency';
@@ -76,8 +76,8 @@ async function enrichFixture(
   );
 }
 
-function boardCacheTtl(epochDay: number, fixtures: BoardFixture[]): number {
-  const today = getEpochDay(new Date());
+function boardCacheTtl(epochDay: number, fixtures: BoardFixture[], timeZone: string): number {
+  const today = getEpochDay(new Date(), timeZone);
   if (fixtures.some((f) => f.status === 'live')) return LOAD_CONFIG.cache.boardLive;
   if (epochDay < today - 1) return LOAD_CONFIG.cache.boardArchive;
   if (fixtures.length > 0 && fixtures.every((f) => f.status === 'finished')) {
@@ -92,6 +92,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const epochDay = searchParams.get('epochDay');
+  const timeZone = resolveUserTimeZone(searchParams.get('timeZone'));
 
   if (!epochDay) {
     return NextResponse.json({ error: 'epochDay query parameter required' }, { status: 400 });
@@ -103,10 +104,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const cacheKey = `board:${epochDayNum}`;
+    const cacheKey = `board:${epochDayNum}:${timeZone}`;
     const cached = txlineCache.get<BoardFixture[]>(cacheKey);
     if (cached) {
-      const ttlMs = boardCacheTtl(epochDayNum, cached);
+      const ttlMs = boardCacheTtl(epochDayNum, cached, timeZone);
       return NextResponse.json(cached, {
         headers: {
           'Cache-Control': `public, s-maxage=${Math.floor(ttlMs / 1000)}, stale-while-revalidate=60`,
@@ -115,7 +116,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const fixtures = await getWorldCupFixturesForDay(epochDayNum);
+    const fixtures = await getWorldCupFixturesForDay(epochDayNum, timeZone);
     const enriched = await mapWithConcurrency(
       fixtures,
       LOAD_CONFIG.boardConcurrency,
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest) {
       return a.StartTime - b.StartTime;
     });
 
-    const ttlMs = boardCacheTtl(epochDayNum, visible);
+    const ttlMs = boardCacheTtl(epochDayNum, visible, timeZone);
     txlineCache.set(cacheKey, visible, ttlMs);
 
     return NextResponse.json(visible, {
